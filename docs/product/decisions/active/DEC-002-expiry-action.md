@@ -1,0 +1,106 @@
+---
+id: DEC-002
+title: Expiry action — hand-rolled quit Apple Event, bounded retry, never force
+applies_to: [TASK-001, TASK-004, TASK-005, TASK-006]
+---
+
+# DEC-002 — Expiry action: hand-rolled quit Apple Event, bounded retry, never force
+
+## Decision
+
+When a deadline expires, Terminator asks the app to quit. It never kills it.
+
+- **The primitive is a hand-rolled quit Apple Event**, not
+  `NSRunningApplication.terminate()`: `AECreateDesc(typeKernelProcessID 'kpid')` →
+  `AECreateAppleEvent(kCoreEventClass 'aevt', kAEQuitApplication 'quit')` →
+  `AESendMessage(kAENoReply | kAEDoNotPromptForUserConsent, kAENormalTimeout)`, sent off the
+  main thread (see findings §4).
+- **`forceTerminate`, `SIGKILL` and `SIGTERM` are never used.** Not on expiry, not on retry
+  exhaustion, not as a fallback.
+- **The seam returns a three-case outcome**: `.requestSent`, `.notRunning`,
+  `.refused(OSStatus)`. It reports whether the event was accepted for delivery, nothing more.
+  Actual death arrives later as a separate `.terminated(pid:)` event from the KVO observer on
+  `runningApplications` (findings §2).
+- **Retry is bounded: five sends spanning 2 minutes, terminal at +150 s.** The first send is at
+  the deadline, then one every 30 s — at +30 s, +60 s, +90 s and +120 s. Thirty seconds after
+  the fifth send, at **+150 s**, the process enters a terminal `refused` state, which is logged
+  and shown in the popover. Terminator stops asking.
+- **`errAEEventNotPermitted (-1743)` is terminal immediately** — no retries. Retrying a denied
+  event fails identically forever (findings §5).
+- A per-app `forceTerminate` opt-in remains possible in the future (`TASK-104`). It is not in
+  the MVP.
+
+## Reason
+
+The product creates friction, not data loss. A user with unsaved work in a watched app must
+never lose it because a timer expired. A quit Apple Event is exactly the request the user's own
+Cmd-Q sends: the app gets to run its termination handling, show its save sheet, and decline.
+
+The event must be hand-rolled because the obvious API cannot honour this rule. `terminate()`
+was disassembled and **tail-calls `forceTerminate()` → LaunchServices `_LSKillApplication` in
+two paths the caller cannot opt out of**: when the target reports `_isLSStopped`, and when
+`AESendMessage` returns `procNotFound (-600)` on a talagent-proxied app (findings §4). Both
+paths are most reachable for long-idle background apps — precisely the population this product
+targets. Hand-rolling sends the same event with neither escalation, adds
+`kAEDoNotPromptForUserConsent`, and returns a real `OSStatus` instead of a `Bool` that only
+means "accepted for delivery".
+
+The retry bound exists because "keep asking" and "ask forever" are different products. Five
+sends over two minutes cover an app that was momentarily busy. Beyond that, the app has
+answered.
+
+## Alternatives considered
+
+**`NSRunningApplication.terminate()`.** Rejected. It escalates to SIGKILL in two paths the
+caller cannot suppress (findings §4), so it cannot honour this decision. Its `Bool` return is
+`status == noErr` from `AESendMessage` — an app that ignores the event, beachballs, or returns
+`NSTerminateLater` produces `true` and never quits, so it is not even a useful signal.
+
+**`SIGTERM`.** Rejected. It bypasses the app's termination handling entirely: no save sheet, no
+document autosave, no chance to decline. It is a kill with a politer name. Removed from scope.
+
+**Unbounded retry until the app dies.** Rejected, and this is the sharpest of the three. An app
+showing an unsaved-changes sheet has already told us it will not quit; sending the event again
+every 30 s forever weaponises that sheet. The result is an app that is not dead, not usable,
+and re-raising a modal on a fixed cadence — worse for the user than either quitting or leaving
+it alone.
+
+**Force-quitting after the retries are exhausted.** Rejected for the same reason as
+`SIGTERM`: the failure mode is losing the user's work, and the whole point of the retry bound
+is that the app's answer is accepted.
+
+## Consequences
+
+- **An app can refuse to close and keep running.** Terminator records `refused`, logs it, shows
+  it in the popover, and does nothing further. The product accepts that its mechanism is
+  defeatable — that is DEC-006, not a defect.
+- The quit path needs Apple Events consent for **every** watched app, because consent is per
+  (client, target) pair and `'aevt'/'quit'` is not consent-exempt (findings §5). That consent
+  must be acquired before kill time, or macOS itself puts a dialog on screen at exactly the
+  moment DEC-004 forbids one — hence `TASK-005`.
+- Retry state and death are tracked separately. The retry loop is driven by the engine's own
+  deadlines and the KVO removal event; it is **never** terminated or cleaned up on a
+  `didTerminate` notification, which is not a reliable source (findings §2).
+- Every quit attempt, outcome and terminal `refused` state is logged via `os.Logger` at
+  `.notice` with `privacy: .public` on every interpolated value. Since no warning precedes a
+  quit (DEC-004), the log is the entire answer to "why did my app close" (findings §14).
+- The engine calls the quit through the swappable expiry-action seam (DEC-003), so the retry
+  policy lives with the strategy rather than being cut into the reducer's core.
+
+## Applies to
+
+- `TASK-001` — the spike proves the hand-rolled event actually quits a real app and records
+  what it returns against an app showing an unsaved-changes sheet, plus what a missing
+  `NSAppleEventsUsageDescription` does.
+- `TASK-004` — the engine owns the five-send / 30 s schedule, the terminal `refused` state at
+  +150 s, and the immediate-terminal handling of `-1743`.
+- `TASK-005` — consent pre-warming exists so that the quit does not trigger the consent prompt
+  at kill time.
+- `TASK-006` — the popover surfaces the `refused` state.
+
+## Review trigger
+
+Reopen this card if the log shows terminal `refused` states accumulating for an app the author
+genuinely wants closed. The candidate change is the deferred per-app `forceTerminate` opt-in
+(`TASK-104`) — an explicit, per-app, user-set choice, never a silent fallback. A single
+refusal is not a trigger; a pattern is.

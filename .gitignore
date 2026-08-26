@@ -1,0 +1,16 @@
+# SwiftPM
+.build/
+.swiftpm/
+
+# Собранный бандл: build.sh пересобирает его целиком
+build/
+
+# Вывод пробников (TASK-001): одноразовый, в гит не идёт
+probes/*/build/
+
+# Xcode-проект в гит не попадает по DEC-007: источник истины — Package.swift
+*.xcodeproj/
+*.xcworkspace/
+
+# macOS
+.DS_Store
