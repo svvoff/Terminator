@@ -16,21 +16,27 @@ Stages 2 (statistics UI), 3 (scheduling), 4 (distribution) are future.
 
 ## Current focus
 
-No product code has been built yet. The repository still contains documentation only — no
-`Package.swift`, no source, no build script.
+**TASK-002 is done** (accepted 2026-08-27), and with it the repository holds product code for the
+first time: `Package.swift` with three targets, `Packaging/Info.plist`, `build.sh`, and a menu bar
+accessory showing the code-drawn skull. Nothing in it is product behaviour — it is the shape
+everything else gets built inside.
 
-**TASK-001 is done** (accepted 2026-08-26). It answered all four open platform questions on
-the author's machine and, more importantly, **refuted three claims the findings carried**: a
-self-signed certificate is not what preserves a TCC grant across rebuilds (ad-hoc preserves it
-too, because TCC matches on bundle identifier), a missing `NSAppleEventsUsageDescription`
-fails silently rather than killing the process, and — measured against TextEdit — the quit
-path needs no Apple Events consent at all. The `Terminator Dev` certificate exists and is
-valid to 2036.
+Three things it settled that later cards rely on. The adapter target is **`TerminatorAppKit`**,
+exposing `MenuBarGlyphEyes` and `menuBarSkullImage(eyes:)`. The logging identity is
+**`TerminatorLog`** in `Sources/TerminatorCore/LoggingIdentity.swift` — subsystem
+`com.svvoff.terminator`, categories `engine`, `quit`, `consent`, `store`, `focus`, `loginitem`.
+The plist template lives at `Packaging/Info.plist`.
 
-The next task is **TASK-002**: `Package.swift`, `build.sh`, signing, and the menu bar item.
-It is not blocked. Before **TASK-005** is picked, the consent finding has to be re-measured
-against several non-Apple applications — on one subject it is not a basis for cancelling a
-card.
+`build.sh` asserts the bundle's designated requirement is exactly
+`identifier "com.svvoff.terminator" and certificate leaf = H"74d5…"` and fails the build on
+anything else — including an ad-hoc signature, a foreign certificate, and a drifted bundle
+identifier. `./build.sh --self-test-guard` exercises that predicate on synthetic strings without
+building or signing.
+
+The next task is **TASK-003**: the rule model and the durable config store. It is the first card
+that brings unit tests, and the first that can be validated end to end without a human at the
+keyboard. Before **TASK-005** is picked, TASK-009 has to re-measure the consent finding against
+several non-Apple applications — on one subject it is not a basis for cancelling a card.
 
 ## Active constraints
 
@@ -41,6 +47,9 @@ These bite on every task, not only on the ones that name them.
 - Signing is the last mutation of the bundle, because `codesign` seals `Contents/Resources`.
   `codesign --verify --strict` is the build's terminal step and its exit code is the
   verification (findings §6).
+- Signing is asserted, not assumed: `build.sh` compares the produced designated requirement
+  against the expected text and fails closed. An ad-hoc bundle passes `codesign --verify --strict`
+  with exit 0, so verification alone never proved anything about who signed (findings §6).
 - The dev loop is `./build.sh && ./build/Terminator.app/Contents/MacOS/Terminator`. Never
   `swift run`: a bare executable is `.prohibited` and can never show a menu bar item
   (findings §7). **When TCC is in play, launch with `open build/Terminator.app` instead** —
@@ -70,6 +79,10 @@ These bite on every task, not only on the ones that name them.
 
 ## Current risks
 
+- `codesign --verify --strict` — the build's terminal step — depends on keychain access, because
+  `Terminator Dev` is a self-signed root trusted through the user's keychain domain. A build run
+  from a sandbox fails it with `CSSMERR_TP_NOT_TRUSTED` on an intact bundle, and the failure reads
+  like a signing defect (findings §6).
 - Apple Events consent is per (client, target) pair and can only be requested against a
   running target, so it is acquired at add-app time when the target is running and at first
   observed launch otherwise — never at expiry (findings §5). **Under verification:** TASK-001

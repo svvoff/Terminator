@@ -254,6 +254,42 @@ client is its own responsible process (§5).
 > named identity is legible — but its stated reason is refuted. Routed to DEC-007's review
 > trigger.
 
+### Measured 2026-08-27, macOS 26.6.2 (25G83) — TASK-002
+
+Three facts about the verification surface itself, met while building the first real bundle.
+
+**An ad-hoc bundle passes `codesign --verify --strict` with exit 0.** Verification says the seal
+is intact; it says nothing about who signed. So the terminal verification step cannot, on its
+own, tell a certificate-signed bundle from the ad-hoc one this section disqualifies — that needs
+a separate check against the designated requirement.
+
+**`codesign -d -r-` marks the ad-hoc requirement as a comment and the certificate one not.**
+Verbatim, same bundle, two signatures:
+
+| signature | line printed on stdout |
+|---|---|
+| `Terminator Dev` | `designated => identifier "com.svvoff.terminator" and certificate leaf = H"74d5…"` |
+| ad-hoc | `# designated => cdhash H"10e8914b…"` |
+
+The leading `# ` appears only in the ad-hoc case. A guard that strips `designated => ` from the
+**start** of the string therefore leaves the ad-hoc text beginning with `# `, not with `cdhash`,
+and passes precisely the case it was written to catch. Found by writing that guard and watching
+`./build.sh --adhoc-control` exit 0. Stripping on the substring, or matching positively against
+the whole expected requirement, both work.
+
+**`codesign --verify --strict` is partly a statement about the local trust store.**
+`Terminator Dev` is a self-signed root, trusted through the user's keychain domain —
+`security dump-trust-settings` lists it with 9 settings of `kSecTrustSettingsResultTrustRoot`. A
+shell without keychain access fails verification of an intact bundle with `CSSMERR_TP_NOT_TRUSTED`
+and exit 1, while `security find-identity -v -p codesigning` reports `0 valid identities found` in
+that same shell; an unrestricted shell verifies the same bytes with exit 0 seconds later. Measured
+against one bundle, unchanged on disk between the two runs.
+
+> Consequence: an agent building inside a sandbox gets a red build from a correct bundle, and the
+> failure reads like a signing defect. `codesign -d -r-` needs no trust evaluation and returns the
+> right requirement in that same context, so a designated-requirement guard survives where the
+> verification step does not.
+
 Do **not** use `--options runtime`: the hardened runtime would additionally require the
 `com.apple.security.automation.apple-events` entitlement.
 
@@ -326,6 +362,20 @@ honoured — the label accepts `Text`, `Image`, or `Label` only.
 
 > Consequence: draw the glyph in code as an `NSImage`. No asset file, so §7's `Bundle.module`
 > problem and §6's resource-sealing problem simply do not apply to the icon.
+
+### Measured 2026-08-27, macOS 26.6.2 (25G83) — TASK-002
+
+**The `MenuBarExtra` label is reactive.** The eye state was lifted to `@State` on the `App`, the
+label written as `Image(nsImage: menuBarSkullImage(eyes: glyphEyes))`, and a button in the
+popover flipped the state: the glyph in the menu bar changed. No `.id(...)`, no scene rebuild, no
+manual invalidation. Observed by the author on his own machine.
+
+This section previously established which label *type* survives; it said nothing about whether
+the label re-renders when its input changes, and the card that drives the eyes from engine state
+is built on the assumption that it does.
+
+The glyph itself was accepted at menu bar size in this render: the mask reads as a skull in both
+light and dark appearance, and the geometry stands as DEC-009 specifies it.
 
 ## 9. Clocks: the two families and what they mean
 

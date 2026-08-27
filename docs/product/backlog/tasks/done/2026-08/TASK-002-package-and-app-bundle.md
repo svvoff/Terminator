@@ -9,6 +9,7 @@ validation_profile: [swift-build, manual-checklist]
 context_refs:
   - docs/product/decisions/index.md
   - docs/product/recon/macos-findings.md
+  - docs/product/decisions/active/DEC-006-anti-circumvention-non-goal.md
   - docs/product/decisions/active/DEC-007-build-and-signing.md
   - docs/product/decisions/active/DEC-009-menu-bar-icon.md
 ---
@@ -320,3 +321,114 @@ TASK-003. A reviewer must not treat their absence here as a gap.
 - If anything in findings §6, §7, §8 or §13 proved wrong in practice, report it to the
   orchestrator rather than editing the findings under this card.
 - Move this card to `tasks/done/YYYY-MM/` on acceptance.
+
+---
+
+## Amendment 2026-08-27 — the cdhash guard becomes fail-closed
+
+Added by the orchestrator after round 1, with the author's explicit permission for the signing
+step (zone 1). Round 1 satisfied this card as written; this amendment strengthens one check and
+changes nothing else.
+
+**What round 1 measured.** The guard as originally specified — strip the prefix `designated => `
+and reject a remainder beginning with `cdhash` — did not fire. `codesign -d -r-` prints an ad-hoc
+requirement as `# designated => cdhash H"…"`, with a leading comment marker, while a
+certificate-signed one carries no such marker. Stripping from the start of the string therefore
+missed precisely the case the guard exists for. The executor fixed it by stripping on the
+substring instead, and demonstrated the guard failing a real build.
+
+**Why that is still not enough.** The guard names one bad shape and passes everything else, so it
+fails open. It stays silent when the output format drifts again, when the bundle is signed with a
+different certificate — including the `Apple Development: Vladimir Voytsekhovskiy (63PZ483Z52)`
+identity this project forbids outright — and when `CFBundleIdentifier` drifts, which is the value
+TCC keys Automation grants on (findings §6).
+
+**The change.** `build.sh` asserts the designated requirement is *exactly* the expected one,
+rather than rejecting one known-bad shape. The expected text is composed from two named constants
+at the top of the script: the bundle identifier `com.svvoff.terminator` and the signing
+certificate's SHA-1 `74d582911cd0b2c7ff3961af4bb0561efd6a8f24`. Anything else fails the build with
+a named error. This subsumes the original criterion — a `cdhash` requirement is not the expected
+text, so it still fails — and additionally mechanises DEC-007's rule about the forbidden work
+identity, which until now rested on executor discipline alone.
+
+The constants in `build.sh` are an *assertion* about the bundle, not a second definition of it:
+`CFBundleIdentifier` continues to live in `Packaging/Info.plist`, and the certificate continues to
+live in the keychain. The guard exists to notice when those two stop agreeing with what this card
+recorded.
+
+**Additional acceptance criteria**
+
+- [ ] `build.sh` fails with a non-zero exit and a named error whenever the produced bundle's
+      designated requirement is not exactly the expected text. The original criterion — a
+      requirement beginning with `cdhash` fails the build — is satisfied by this stronger check
+      and is still demonstrated by `./build.sh --adhoc-control`.
+- [ ] The comparison is a shell function taking the requirement text as an argument, and
+      `./build.sh --self-test-guard` exercises it against four synthetic requirement strings —
+      ad-hoc, wrong certificate, wrong bundle identifier, and the expected one — reporting a
+      wrong verdict as a non-zero exit. It performs no build and no signing, so proving the guard
+      rejects a foreign certificate never requires signing with one.
+- [ ] Nothing else in `build.sh` changes: the step order, the `codesign --force --sign
+      "Terminator Dev"` line, the `--adhoc-control` arm and the terminal
+      `exec codesign --verify --strict` all stay as round 1 left them.
+
+**Recorded alongside, not fixed here.** `codesign --verify --strict` — this build's terminal step
+per DEC-007 — is partly a statement about the local trust store, not only about the bundle:
+`Terminator Dev` is a self-signed root trusted in the user's keychain domain, so a process without
+keychain access fails it with `CSSMERR_TP_NOT_TRUSTED` on a bundle that is in fact intact.
+Measured 2026-08-27 on this machine. The guard is unaffected — `codesign -d -r-` needs no trust
+evaluation and works in that context. This is a note for whoever runs a build in a sandbox; it
+changes nothing in this card.
+
+---
+
+## Amendment 2 · 2026-08-27 — the glyph state is switchable from the placeholder
+
+Added by the orchestrator after the author attempted DEC-009's review trigger on real hardware
+and could not complete it. This amendment exists because the original card could not answer the
+question its own governing decision asks.
+
+**What went wrong.** The card pins the status item to `idle` and leaves the red-eye state to
+TASK-006. Round 1 therefore rendered both variants side by side inside the placeholder window, and
+that was treated as enough for the comparison. It is not. DEC-009 asks whether *"the red eyes are
+not distinguishable from the idle eyes at a glance in either appearance"* — and both halves of
+that question are about the **menu bar**: the bone tracks the menu bar's appearance, and the red
+has to hold against a light or a dark menu bar. A sample rendered on the popover's background, at
+the popover's size, answers a different question. The author reported the mask reads as a skull,
+and that the eyes could not be judged in the bar at all.
+
+**Why this is not TASK-006's scope.** DEC-009 states it directly: *"Both eye variants are drawn
+there — TASK-002 owns the drawing code, and only the live switching waits for TASK-006 — so the
+comparison can be made then."* What TASK-006 owns is deriving the bit — "is any countdown
+running" — from engine state. A control the author presses by hand knows nothing about the engine
+and guesses nothing about that wiring. The placeholder is replaced wholesale by TASK-006, and this
+control goes with it.
+
+**The change.** The eye state moves up to the `App` as view state, so the `MenuBarExtra` label
+renders from it, and the placeholder carries a button that flips it. Pressing the button changes
+the glyph **in the menu bar**, which is the only place DEC-009's question can be answered. No
+engine, no store, no observer, no timer: a single boolean owned by the view layer, and a button.
+
+**Additional acceptance criteria**
+
+- [ ] The `MenuBarExtra` label renders from a single piece of view state, and a button in the
+      placeholder flips it between `idle` and `active`. The label is still a pre-configured
+      `Image(nsImage:)` — findings §8 is unchanged by this.
+- [ ] The button's title names the state it switches to, and the placeholder shows which state is
+      current, so the author never has to guess what the bar is displaying.
+- [ ] Both the control and the state carry a comment naming TASK-006 as their owner and this
+      amendment as the reason they exist, so neither is mistaken for engine wiring or reinvented
+      later.
+- [ ] `Sources/Terminator/` still contains no `NSApplicationDelegateAdaptor`, no app delegate, no
+      engine, no store, no observer and no timer. A boolean and a button are not a composition
+      root.
+- [ ] `Sources/TerminatorAppKit/MenuBarGlyph.swift` is unchanged: the drawing function already
+      takes the state as a parameter, which is exactly why this amendment is small.
+
+**Manual checklist, replacing item 4 of round 1**
+
+The comparison is made in the menu bar, not in the popover: press the button, and judge in both
+light and dark appearance whether the bone follows the appearance and whether the red eyes are
+distinguishable from idle at a glance. That is DEC-009's review trigger, and it is the last thing
+gating acceptance of this card. Whether the label actually re-renders when the state changes is
+itself worth recording — findings §8 establishes which label *type* survives, not whether it is
+reactive, and TASK-006 is built on the assumption that it is.
