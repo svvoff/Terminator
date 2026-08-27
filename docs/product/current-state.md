@@ -16,14 +16,21 @@ Stages 2 (statistics UI), 3 (scheduling), 4 (distribution) are future.
 
 ## Current focus
 
-Nothing has been built. The repository contains documentation only — no `Package.swift`, no
-source, no build script. The first task is TASK-001, a spike that answers the four open
-platform questions before any engine code is written against a guess: whether a self-signed
-certificate preserves TCC Automation grants across rebuilds and what a missing
-`NSAppleEventsUsageDescription` does — the two marked UNSETTLED in the findings (§6, §5) —
-plus whether the hand-rolled quit event actually quits a live app (findings §4) and whether
-consent pre-warming on a background queue works against a running target (findings §5). Every
-other ready task depends on TASK-001 directly or transitively.
+No product code has been built yet. The repository still contains documentation only — no
+`Package.swift`, no source, no build script.
+
+**TASK-001 is done** (accepted 2026-08-26). It answered all four open platform questions on
+the author's machine and, more importantly, **refuted three claims the findings carried**: a
+self-signed certificate is not what preserves a TCC grant across rebuilds (ad-hoc preserves it
+too, because TCC matches on bundle identifier), a missing `NSAppleEventsUsageDescription`
+fails silently rather than killing the process, and — measured against TextEdit — the quit
+path needs no Apple Events consent at all. The `Terminator Dev` certificate exists and is
+valid to 2036.
+
+The next task is **TASK-002**: `Package.swift`, `build.sh`, signing, and the menu bar item.
+It is not blocked. Before **TASK-005** is picked, the consent finding has to be re-measured
+against several non-Apple applications — on one subject it is not a basis for cancelling a
+card.
 
 ## Active constraints
 
@@ -36,7 +43,9 @@ These bite on every task, not only on the ones that name them.
   verification (findings §6).
 - The dev loop is `./build.sh && ./build/Terminator.app/Contents/MacOS/Terminator`. Never
   `swift run`: a bare executable is `.prohibited` and can never show a menu bar item
-  (findings §7).
+  (findings §7). **When TCC is in play, launch with `open build/Terminator.app` instead** —
+  a direct exec makes the terminal the responsible process, so consent is recorded against
+  the terminal rather than the app (findings §5, §7; measured by TASK-001).
 - Every interpolated value in every log line carries `privacy: .public`. Redaction happens at
   write time and cannot be undone, and the log is this product's only diagnostic channel
   (findings §14).
@@ -61,13 +70,15 @@ These bite on every task, not only on the ones that name them.
 
 ## Current risks
 
-- Two of the four open platform questions are marked UNSETTLED; guessing at either would
-  invalidate the build script or the whole quit path. TASK-001 closes all four.
-- Rebuilds change code identity unless a stable signing identity holds. If it does not, every
-  watched app re-prompts for Automation consent on every build (findings §6).
 - Apple Events consent is per (client, target) pair and can only be requested against a
   running target, so it is acquired at add-app time when the target is running and at first
-  observed launch otherwise — never at expiry (findings §5).
+  observed launch otherwise — never at expiry (findings §5). **Under verification:** TASK-001
+  measured that the quit path does not need that consent at all, but against a single target.
+- The quit event returns `noErr` for "accepted for delivery" and the app can stay alive
+  indefinitely behind an unsaved-changes sheet — measured at 6 minutes. Death must be observed
+  on the app object, never inferred from the send (findings §4).
+- Anything that touches TCC must be launched with `open`, not exec'd out of `Contents/MacOS/`,
+  or the consent lands on the terminal instead of the app (findings §5, §7).
 - Every detection path is edge-triggered: a missed edge means a permanently unwatched app with
   zero symptoms (findings §2).
 - Accepted product risk: the interruption tax (DEC-008). Review trigger is one week of

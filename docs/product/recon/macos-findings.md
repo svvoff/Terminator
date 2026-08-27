@@ -10,8 +10,13 @@ finding turns out to be wrong in practice, that is a discovery worth recording �
 file and say so in the execution log.
 
 Everything here was proven by running code or by reading the SDK headers and the AppKit
-disassembly. Where a claim could not be settled that way it is marked **UNSETTLED** and
-routed to `TASK-001`.
+disassembly. Nothing is marked UNSETTLED any more: the four questions that were are recorded
+as settled at the end of this file, measured by `TASK-001` on 2026-08-26.
+
+Several claims across §4, §5 and §6 were **refuted** by that spike rather than confirmed, and
+two section headings had to change with them. Each correction sits where the old claim stood,
+next to the measurement that replaced it, because a reader who remembers the old text needs to
+see it corrected rather than quietly gone.
 
 ---
 
@@ -34,7 +39,9 @@ User-idle detection is also free: `CGEventSource.secondsSinceLastEventType` retu
 values under the same denied-everything conditions.
 
 > Consequence: there is no onboarding or permission step for watching apps or recording
-> focus. The product's only permission cost is Apple Events (§4).
+> focus. The product's only permission cost is Apple Events (§4) — and TASK-001 measured that
+> even that one may not be charged for the quit path itself (§5). Treat this as an upper
+> bound, not a settled figure.
 
 ## 2. Notifications are not a reliable event source — KVO is
 
@@ -92,8 +99,10 @@ population this product targets.
 
 > Consequence: `terminate()` cannot honour DEC-002 (never SIGKILL). Send the quit Apple Event
 > by hand: `AECreateDesc(typeKernelProcessID 'kpid')` → `AECreateAppleEvent` →
-> `AESendMessage(kAENoReply | kAEDoNotPromptForUserConsent, kAENormalTimeout)`, off the main
+> `AESendMessage(kAENoReply | kAEDoNotPromptForUserConsent, kAEDefaultTimeout)`, off the main
 > thread. Same event, neither escalation, and a real `OSStatus` instead of a `Bool`.
+> (This line said `kAENormalTimeout` until TASK-001 found no such symbol in the SDK — see the
+> measurement below.)
 
 Its `Bool` return is literally `status == noErr` from `AESendMessage`, i.e. "accepted for
 delivery". Because the send is `kAENoReply`, an app that ignores the event, beachballs, shows
@@ -101,7 +110,30 @@ an unsaved-changes sheet, or returns `NSTerminateLater` produces `true` and neve
 header says so: *"This method may return before the receiver exits; you should observe the
 terminated property."*
 
-## 5. Apple Events consent is the product's only permission cost
+### Measured 2026-08-26, macOS 26.5.2 (25F84), subject TextEdit — TASK-001
+
+The hand-rolled sequence quits a real app, and the gap between "accepted" and "quit" is real:
+
+| trial | `AESendMessage` | call blocked | outcome |
+|---|---|---|---|
+| no unsaved document | `noErr` | 0.003 s | gone in 0.252 s |
+| unsaved document | `noErr` | 0.007 s | **still alive at 20 s, and at 6 min** — quit only when the operator answered the sheet |
+
+**The send never blocks.** With the unsaved-changes sheet on screen it still returned in
+0.007 s, so the call is not where an app's refusal shows up. Two further sends five minutes
+into the same sheet also returned `noErr` in 0.006 s each, with the app still alive. Whether
+repeat sends stack a second sheet was **not** established: the operator described one
+save-changes dialog when asked which button to press, but was never asked to count them.
+
+Termination was watched through two independent views — `sysctl(KERN_PROC_PID)` and
+`NSWorkspace.runningApplications` — which never diverged by more than 16 ms. §2's KVO source
+does not lag the kernel.
+
+`kAENormalTimeout` **does not exist** in the SDK. The constants are `kAEDefaultTimeout` (-1)
+and `kNoTimeOut` (-2), `AEDataModel.h:431-432`. The prescription above should read
+`kAEDefaultTimeout`; DEC-002 carries the same wrong name.
+
+## 5. Apple Events consent: what it gates, and what it turned out not to
 
 `'aevt'/'quit'` is **not** on the consent-exempt Apple Event list. Probed read-only against 8
 live apps (Telegram, Finder, Chrome, Preview, Fork, Clipy, Terminal, Simulator),
@@ -110,23 +142,75 @@ live apps (Telegram, Finder, Chrome, Preview, Fork, Clipy, Terminal, Simulator),
 `'aevt'/'odoc'` and for `'core'/'getd'` alike. An exempt event would have returned `noErr`
 while the wildcard returned `-1744`.
 
-Consent is per (client, target) pair, so **every watched app needs its own grant**.
+Consent is per (client, target) pair.
 
-Consequences, all handled by `TASK-005`:
+That is what the permission API reports. What it does **not** describe is what a no-reply quit
+event is allowed to do — measured below, and the difference overturns this section's old
+consequences.
 
-- By default the prompt fires at **kill time**, and `AESendMessage` blocks the calling thread
-  until the user answers. That is a dialog immediately before closing — exactly what DEC-004
-  forbids — produced by macOS, not by our code. Consent must be pre-warmed.
-- `AEDeterminePermissionToAutomateTarget` can only prompt for a **running** target; a
-  non-running one returns `procNotFound (-600)`. So consent cannot be acquired when adding an
-  app that is currently closed — it must be acquired on that app's first observed launch.
-- Without `NSAppleEventsUsageDescription` in Info.plist the prompt never appears and every
-  quit fails forever, silently. **UNSETTLED:** whether the absence produces a silent `-1743`
-  or terminates the calling process. Routed to `TASK-001`.
-- On denial `AESendMessage` returns `errAEEventNotPermitted (-1743)`. Retrying a denied event
-  fails identically forever, so `-1743` is a terminal state, not a retry case.
+### Measured 2026-08-26, macOS 26.5.2 (25F84), subject TextEdit — TASK-001
 
-## 6. Signing: ad-hoc is not viable, and signing must be last
+**The quit path needs no consent.** The hand-rolled `'aevt'/'quit'` send was delivered and the
+target actually quit in three trials, each with its consent state verified immediately before
+the send:
+
+| consent state before the send | `AESendMessage` | target quit? |
+|---|---|---|
+| never asked (`-1744`) | `noErr`, 0.007 s | yes, in 0.258 s |
+| denied (`-1743`) | `noErr`, 0.005 s | yes |
+| denied (`-1743`), replication | `noErr`, 0.011 s | yes, in 0.254 s |
+
+Negative control: an untouched TextEdit stayed alive 20 s, so the event caused the quits.
+
+This refutes two claims this section used to carry: no prompt fires at kill time, and
+`AESendMessage` does not return `-1743` on denial. **Scope: one target.** Whether every app
+behaves this way was not measured, and `TASK-005` should not be cancelled on a single subject.
+
+Confirmed, and unchanged:
+
+- The prompt **does** appear when requested from a background queue and blocks that thread
+  until the user answers. Nothing deadlocks, but the block is **unbounded**: across five trials
+  it lasted 4.015 s, 5.431 s, 7.212 s, 147.968 s and — with the dialog left on screen while the
+  operator transcribed it — **4049.816 s**, i.e. 67 minutes. Whatever thread pre-warms consent
+  is held for as long as the human takes to answer, so it must not be one the product needs.
+- Allow → `noErr`. Deny → `errAEEventNotPermitted (-1743)`. After a denial the call stops
+  prompting: `-1743` in 0.023 s instead of blocking. Retrying a denied *permission request* is
+  futile, as stated.
+- The wildcard and `'aevt'/'quit'` are indistinguishable in every state measured: both `-1744`
+  ungranted, both `noErr` granted, both `-1743` denied, both `-600` against a dead pid.
+- A **non-running** target returns `procNotFound (-600)`, so consent still cannot be acquired
+  for a closed app — it must be taken at first observed launch.
+- A grant survives the target being quit and relaunched under a new pid.
+
+**What the consent dialog actually says**, captured verbatim from the probe's own prompt:
+
+> **"Probe" wants access to control "TextEdit". Allowing control will provide access to
+> documents and data in "TextEdit", and to perform actions within that app.**
+>
+> The TASK-001 probe measures Apple Events consent behaviour against TextEdit.
+>
+> `Don't Allow`  `Allow`
+
+Two things follow, and both are product-facing:
+
+- The app name macOS shows is **"Probe"** — the `.app` filename — not `CFBundleName`, which was
+  `Terminator TASK-001 Probe`. So the user reads the bundle's filename. Renaming
+  `Terminator.app` changes what the consent dialog calls the product.
+- The second line is `NSAppleEventsUsageDescription` **rendered verbatim**. It is user-facing
+  copy, not a technical formality, and `TASK-005` has to write it as such.
+
+Without `NSAppleEventsUsageDescription` the absence is **silent, not fatal**:
+`AEDeterminePermissionToAutomateTarget(askUserIfNeeded: true)` returns `-1743` in 0.016 s, no
+dialog appears, and the calling process survives — no crash report, no TCC violation logged.
+
+**TCC attributes consent to the responsible process, not the caller.** A probe exec'd straight
+from a shell had its grant recorded against the *terminal application*; no row for the probe
+ever appeared in System Settings → Privacy & Security → Automation. Launching the bundle
+through LaunchServices (`open`) makes it its own responsible process, after which
+`tccutil reset <bundle-id>` becomes observable. Anything exec'd directly out of
+`Contents/MacOS/` measures the terminal's permissions — which is what §7's dev loop does.
+
+## 6. Signing: unsigned cannot run at all, and signing must be last
 
 A completely unsigned arm64 `.app` cannot execute — direct exec exits 137, `open` fails with
 launchd spawn error 163. `swift build`'s linker ad-hoc signature is **not** a bundle
@@ -137,19 +221,31 @@ sealed resource is missing or invalid"*. So signing must be the **last** mutatio
 bundle.
 
 An ad-hoc signature's designated requirement is `cdhash H"…"` with no TeamIdentifier, and a
-one-character source change produced a different cdhash. TCC keys Automation grants to that
-designated requirement.
+one-character source change produced a different cdhash.
 
-> Consequence: with ad-hoc signing, every rebuild is a different program to macOS — every
-> watched app re-prompts for consent on every build, and orphaned rows accumulate in System
-> Settings → Privacy & Security → Automation. For a backlog executed by agents that rebuild
-> constantly this is untenable. A **stable signing identity** is an MVP prerequisite, not a
-> distribution concern.
->
-> **UNSETTLED:** whether a locally self-signed certificate preserves TCC grants across
-> rebuilds. The mechanism argues yes (a certificate-based designated requirement is
-> `identifier "…" and certificate leaf …`, stable by construction), but one source disputes
-> it. Settled empirically by `TASK-001`.
+### Measured 2026-08-26, macOS 26.5.2 (25F84) — TASK-001
+
+A TCC Automation grant survives a rebuild under **both** schemes. Both arms were run with the
+grant taken after a reset verified at `-1744`, then rebuilt from changed source without any
+reset in between:
+
+| arm | designated requirement, before → after | cdhash, before → after | grant after rebuild |
+|---|---|---|---|
+| `Terminator Dev` | `identifier "com.svvoff.terminator.probe" and certificate leaf = H"74d582911cd0b2c7ff3961af4bb0561efd6a8f24"` → **byte-identical** | `996b7efd…` → `297cb17e…` | `noErr` |
+| ad-hoc | `cdhash H"7775dbdb1bab980c292d03eaaad86e87d3a612af"` → `cdhash H"9ee7d1a8259fe25b719f79657e30fed9de8dea2a"` | same two values | `noErr` |
+
+The cross-test explains it. A grant given to the **ad-hoc** build was honoured by a
+**certificate-signed** rebuild that had never been granted in that cycle. So TCC matches the
+Automation row on the **bundle identifier**, not on the designated requirement. Caching is
+excluded: `tccutil reset <bundle-id>` takes effect immediately and reproducibly once the
+client is its own responsible process (§5).
+
+> Consequence, and it reverses the old text here: a stable identity does **not** buy grant
+> stability across rebuilds, because ad-hoc does not lose it. Orphaned-row accumulation and
+> per-build re-prompting were predicted from a mechanism that does not hold. The signing half
+> of DEC-007 still stands on its other legs — an unsigned bundle cannot run at all, and a
+> named identity is legible — but its stated reason is refuted. Routed to DEC-007's review
+> trigger.
 
 Do **not** use `--options runtime`: the hardened runtime would additionally require the
 `com.apple.security.automation.apple-events` entitlement.
@@ -178,6 +274,14 @@ when exec'd directly at `Contents/MacOS/Terminator`.
 > Consequence: `swift run` can never show a menu bar item. The dev loop is
 > `./build.sh && ./build/Terminator.app/Contents/MacOS/Terminator`. Anyone debugging a
 > missing menu bar item under `swift run` is debugging a non-bug.
+>
+> **But that dev loop is wrong for anything touching TCC** — added by TASK-001. A binary
+> exec'd out of `Contents/MacOS/` inherits the *shell's* application as its responsible
+> process, so macOS records Apple Events consent against the terminal, not against
+> Terminator, and no row for the product ever appears in System Settings (§5). Launch it
+> with `open build/Terminator.app` whenever consent, `tccutil` or a permission dialog is
+> in play; the direct exec stays fine for everything else, and is still what you want for
+> stdout.
 
 SwiftPM `resources:` + `Bundle.module` is **unusable** with a hand-assembled `.app`. The
 generated accessor looks for `Terminator.app/<Pkg>_<Target>.bundle` at the bundle *root*,
@@ -364,13 +468,19 @@ Because this product shows no warning before closing an app, the log is the *ent
 
 ---
 
-## Open questions routed to TASK-001
+## Questions TASK-001 settled
 
-1. Does a locally self-signed certificate preserve TCC Automation grants across rebuilds?
-   (Control: ad-hoc, which is known not to.)
-2. Does a missing `NSAppleEventsUsageDescription` produce a silent `errAEEventNotPermitted`,
-   or terminate the calling process?
-3. Does the hand-rolled quit Apple Event actually quit a real app, and what does it return
-   when the target shows an unsaved-changes sheet?
-4. Does pre-warming consent via `AEDeterminePermissionToAutomateTarget(askUserIfNeeded: true)`
-   on a background queue behave as expected against a running target?
+Answered on the author's machine on 2026-08-26, macOS 26.5.2 (25F84), arm64. Raw transcripts
+are in `docs/ai/execution-log/latest.md`.
+
+1. **Does a locally self-signed certificate preserve TCC Automation grants across rebuilds?**
+   Yes — and so does ad-hoc, which was the control. The grant follows the bundle identifier,
+   not the designated requirement. See §6.
+2. **Does a missing `NSAppleEventsUsageDescription` produce a silent `errAEEventNotPermitted`,
+   or terminate the calling process?** Silent `-1743`, no dialog, process survives. See §5.
+3. **Does the hand-rolled quit Apple Event actually quit a real app, and what does it return
+   when the target shows an unsaved-changes sheet?** It quits it in ~0.25 s. With a sheet up it
+   returns `noErr` in 0.007 s and the app stays alive indefinitely. See §4.
+4. **Does pre-warming consent on a background queue behave as expected?** Yes — the prompt
+   appears, blocks only the calling thread, and nothing deadlocks. See §5, which also records
+   that the quit path turned out not to need the consent at all.

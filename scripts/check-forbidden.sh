@@ -9,6 +9,11 @@
 # Проверяется только код: *.swift, *.sh, Package.swift. docs/ и .git/ не
 # сканируются — там эти строки встречаются законно, как предмет обсуждения.
 #
+# Комментарии снимаются перед грепом. Это не послабление: комментарий — не код,
+# а гейт, срабатывающий на строку «этот файл не использует forceTerminate»,
+# приучает себя игнорировать. Найдено в TASK-001, где шесть срабатываний из
+# шести оказались ложными.
+#
 # Не выражается грепом и потому проверяется в ревью вручную
 # (docs/ai/review-checklist.md):
 #   - SuspendingClock в ПУТИ ДЕДЛАЙНА (сам по себе он разрешён: TASK-007
@@ -34,9 +39,26 @@ code_files() {
     \( -name '*.swift' -o -name '*.sh' \) -type f -print 2>/dev/null
 }
 
+# swift_files — для конструкций, существующих только в Swift (например ===).
+swift_files() {
+  find "$root" \
+    \( -path '*/.git' -o -path '*/docs' -o -path '*/.build' -o -path '*/build' \) -prune -o \
+    -name '*.swift' -type f -print 2>/dev/null
+}
+
 # core_files — только чистое ядро: Foundation и никакого AppKit.
 core_files() {
   find "$root/Sources/TerminatorCore" -name '*.swift' -type f -print 2>/dev/null
+}
+
+# strip_comments <file> — печатает файл без комментариев, сохраняя нумерацию
+# строк (grep -n считает по потоку, а поток той же длины).
+strip_comments() {
+  case "$1" in
+    *.swift) sed -e 's://.*::' "$1" ;;
+    *.sh)    sed -e 's:#.*::' "$1" ;;
+    *)       cat "$1" ;;
+  esac
 }
 
 # check <lister> <fixed-string> <почему>
@@ -45,7 +67,7 @@ core_files() {
 check() {
   local lister="$1" pattern="$2" why="$3" f out found=""
   while IFS= read -r f; do
-    out="$(grep -Hn -F -- "$pattern" "$f" 2>/dev/null)" || true
+    out="$(strip_comments "$f" | grep -n -F -- "$pattern" 2>/dev/null | sed "s|^|$f:|")" || true
     [ -n "$out" ] && found="${found}${out}
 "
   done < <($lister)
@@ -62,7 +84,7 @@ check code_files '.terminate()'     'findings §4: terminate() эскалиру�
 check code_files 'SIGKILL'          'DEC-002: сигналы запрещены'
 check code_files 'SIGTERM'          'DEC-002: сигналы запрещены'
 check code_files 'kill('            'DEC-002: сигналы запрещены'
-check code_files '==='              'findings §10: равенство NSRunningApplication ASN-based'
+check swift_files '==='             'findings §10: равенство NSRunningApplication ASN-based'
 
 # --- Swift 6: эскейп-хетчи (findings §13) ------------------------------------
 check code_files '@unchecked Sendable'   'findings §13: чинить форму, а не глушить диагностику'
