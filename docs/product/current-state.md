@@ -16,27 +16,34 @@ Stages 2 (statistics UI), 3 (scheduling), 4 (distribution) are future.
 
 ## Current focus
 
-**TASK-002 is done** (accepted 2026-08-27), and with it the repository holds product code for the
-first time: `Package.swift` with three targets, `Packaging/Info.plist`, `build.sh`, and a menu bar
-accessory showing the code-drawn skull. Nothing in it is product behaviour — it is the shape
-everything else gets built inside.
+**TASK-003 is done** (accepted 2026-08-27), and with it the product has a durable configuration
+of its own and its first unit tests: 22 synchronous tests in four suites, 0.09 s, no sleeps. It
+was the first card validated end to end with nobody at the keyboard.
 
-Three things it settled that later cards rely on. The adapter target is **`TerminatorAppKit`**,
-exposing `MenuBarGlyphEyes` and `menuBarSkullImage(eyes:)`. The logging identity is
-**`TerminatorLog`** in `Sources/TerminatorCore/LoggingIdentity.swift` — subsystem
-`com.svvoff.terminator`, categories `engine`, `quit`, `consent`, `store`, `focus`, `loginitem`.
-The plist template lives at `Packaging/Info.plist`.
+What it settled that every later card leans on. The rules file is
+`~/Library/Application Support/com.svvoff.terminator/config.json` at `schemaVersion: 1`; `rules`
+is a JSON **object keyed by bundle identifier**, so two rules for one app are not expressible in
+the file's shape. The limit is a tagged object `{ "kind": "constant", "limitSeconds": Int }`,
+valid only as whole minutes from 1 to 480 (`Limit.allowedMinutes`). `enabledAt` is an ISO 8601
+string without fractional seconds, or absent, or `null` — and absent means disabled; there is no
+boolean anywhere (DEC-001). The verbatim bytes are recorded in `docs/ai/execution-log/latest.md`.
 
-`build.sh` asserts the bundle's designated requirement is exactly
-`identifier "com.svvoff.terminator" and certificate leaf = H"74d5…"` and fails the build on
-anything else — including an ad-hoc signature, a foreign certificate, and a drifted bundle
-identifier. `./build.sh --self-test-guard` exercises that predicate on synthetic strings without
-building or signing.
+Two shared pieces live in `TerminatorCore` and are reused rather than reimplemented:
+`writeDurably(_:to:)` — temp beside the destination, `F_FULLFSYNC`, `rename(2)`, directory
+`fsync` — which TASK-007 and TASK-008 call for their own files, and `TerminatorIdentity`
+`.bundleIdentifier`, the single occurrence of the identifier literal in `Sources/`.
 
-The next task is **TASK-003**: the rule model and the durable config store. It is the first card
-that brings unit tests, and the first that can be validated end to end without a human at the
-keyboard. Before **TASK-005** is picked, TASK-009 has to re-measure the consent finding against
-several non-Apple applications — on one subject it is not a basis for cancelling a card.
+The store's third contribution is **quarantine**: an unparseable file, a future `schemaVersion`
+or a rule that breaks a model invariant leaves the bytes untouched, keeps the previous good
+config in memory and makes `save` throw. `ConfigStore.quarantine` exposes the reason as readable
+state, and TASK-006 must render it — DEC-004 leaves no notification channel, so a silent
+quarantine would swallow every edit the user makes with zero symptoms.
+
+**No task is currently selected.** Every remaining card with its dependencies closed sits behind
+a gate that needs the author's explicit go-ahead: TASK-004 and TASK-009 are `risk: high` and quit
+other people's applications, TASK-008 writes into `~/Library/LaunchAgents`, and TASK-005 waits on
+TASK-009 by the author's decision — the "quit needs no consent" finding was measured against one
+application, which is not a basis for cancelling a card.
 
 ## Active constraints
 
@@ -66,6 +73,12 @@ These bite on every task, not only on the ones that name them.
   never from `Date()` (findings §3).
 - `TerminatorCore` is a pure synchronous reducer: Foundation only, no AppKit, no async, no
   real clock (findings §13).
+- The on-disk config format is a human-facing contract, not an implementation detail. Changing
+  the field names, the tagging, the date format or the `rules` shape is a migration, and the
+  test `handWrittenMinimalJSONLoads` is where that contract is written down.
+- Every file this product writes goes through `writeDurably(_:to:)`. Never `Data.write(options:
+  .atomic)` — it renames without an fsync (findings §11). The helper does not create the
+  destination directory, and the stray-temp-file sweep walks the app's own data directory only.
 
 ## Active non-goals
 

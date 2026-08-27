@@ -39,6 +39,11 @@ let package = Package(
             name: "Terminator",
             dependencies: ["TerminatorCore", "TerminatorAppKit"],
             swiftSettings: [.defaultIsolation(MainActor.self)]
-        )
+        ),
+
+        // Тесты ядра. Без defaultIsolation по той же причине, что и сам TerminatorCore:
+        // ядро тестируется вне MainActor. Фреймворк — swift-testing, он идёт с тулчейном
+        // и зависимости пакета не требует.
+        .testTarget(name: "TerminatorCoreTests", dependencies: ["TerminatorCore"])
     ]
 )
