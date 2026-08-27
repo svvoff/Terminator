@@ -280,8 +280,30 @@ deadpid против ЖИВОГО pid (31245):
 последняя — 67 минут, диалог висел, пока оператор его переписывал
 ```
 
-### Артефакт для уборки
+### Уборка — выполнена, и дала ещё одно измерение
 
-Строка `claude → TextEdit` в System Settings → Privacy & Security → Automation создана этим
-экспериментом на первом (снятом) раунде. Убирается вручную переключателем.
+Строка `claude → TextEdit` создана на первом (снятом) раунде. Пользователь выключил её
+переключателем в System Settings 2026-08-27. Проверка **прямым exec** — он атрибутируется на
+терминал, поэтому читает именно грант `claude`:
 
+```text
+до выключения:    check quit = 0 noErr
+после выключения: check quit = -1743 errAEEventNotPermitted    <- НЕ -1744
+```
+
+**Переключатель в System Settings — не сброс.** Он оставляет строку и переводит её в
+«отказано». В состояние «никогда не спрашивали» (`-1744`) возвращает только
+`tccutil reset AppleEvents <bundle-id>`. Записано в findings §5 и внесено в TASK-009: там
+требуется стартовое состояние `-1744`, и попытка добыть его через UI обречена.
+
+Строка самого пробника снята, состояние проверено:
+
+```text
+$ tccutil reset AppleEvents com.svvoff.terminator.probe
+Successfully reset AppleEvents approval status for com.svvoff.terminator.probe
+$ run-probe.sh check quit
+  status: -1744 (errAEEventWouldRequireUserConsent)
+```
+
+TextEdit закрыт вежливым событием: `AESendMessage: 0 (noErr)`, pid исчез через 0.257 s.
+Незакрытых артефактов не осталось.

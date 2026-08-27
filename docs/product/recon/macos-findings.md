@@ -182,6 +182,13 @@ Confirmed, and unchanged:
   for a closed app — it must be taken at first observed launch.
 - A grant survives the target being quit and relaunched under a new pid.
 
+**The System Settings toggle is not a reset.** Turning an app's Automation switch **off** in
+System Settings → Privacy & Security → Automation leaves the row in place and flips it to
+denied: a subsequent `AEDeterminePermissionToAutomateTarget(askUserIfNeeded: false)` returns
+`errAEEventNotPermitted (-1743)`, **not** `-1744`. Only `tccutil reset AppleEvents <bundle-id>`
+returns the pair to the never-asked state. Anything that needs a verified `-1744` starting
+point cannot get there through the UI.
+
 **What the consent dialog actually says**, captured verbatim from the probe's own prompt:
 
 > **"Probe" wants access to control "TextEdit". Allowing control will provide access to

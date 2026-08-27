@@ -108,6 +108,11 @@ Before every trial, and after every reset: with the subject running, call
 trial** — do not run it, do not report a result from it, find a reset path that produces
 `-1744`, record that path, then run.
 
+Do not reach for the System Settings toggle when hunting for that path. Switching an app's
+Automation entry off leaves the row and flips it to denied, which reads back as `-1743`, not
+`-1744` (findings §5, measured). `tccutil reset AppleEvents com.svvoff.terminator.probe` is
+the only path known to restore the never-asked state.
+
 Note the trap TASK-001 fell into: the probe must be launched through LaunchServices
 (`probes/task-001/run-probe.sh`, i.e. `open -n -W -a`). Exec'ing it out of `Contents/MacOS/`
 makes the terminal the responsible process, and every consent measurement then describes the
