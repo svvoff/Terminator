@@ -13,8 +13,9 @@ When a deadline expires, Terminator asks the app to quit. It never kills it.
 - **The primitive is a hand-rolled quit Apple Event**, not
   `NSRunningApplication.terminate()`: `AECreateDesc(typeKernelProcessID 'kpid')` →
   `AECreateAppleEvent(kCoreEventClass 'aevt', kAEQuitApplication 'quit')` →
-  `AESendMessage(kAENoReply | kAEDoNotPromptForUserConsent, kAENormalTimeout)`, sent off the
-  main thread (see findings §4).
+  `AESendMessage(kAENoReply | kAEDoNotPromptForUserConsent, kAEDefaultTimeout)`, sent off the
+  main thread (see findings §4). (This line said `kAENormalTimeout` until TASK-001 found no
+  such symbol in the SDK: the constants are `kAEDefaultTimeout` (-1) and `kNoTimeOut` (-2).)
 - **`forceTerminate`, `SIGKILL` and `SIGTERM` are never used.** Not on expiry, not on retry
   exhaustion, not as a fallback.
 - **The seam returns a three-case outcome**: `.requestSent`, `.notRunning`,
@@ -25,8 +26,13 @@ When a deadline expires, Terminator asks the app to quit. It never kills it.
   the deadline, then one every 30 s — at +30 s, +60 s, +90 s and +120 s. Thirty seconds after
   the fifth send, at **+150 s**, the process enters a terminal `refused` state, which is logged
   and shown in the popover. Terminator stops asking.
-- **`errAEEventNotPermitted (-1743)` is terminal immediately** — no retries. Retrying a denied
-  event fails identically forever (findings §5).
+- **`errAEEventNotPermitted (-1743)` has never been observed on the quit path, and the
+  handling stays anyway.** This bullet used to read "is terminal immediately", describing a case
+  TASK-001 and TASK-009 then failed to produce: seventeen sends against five applications, in
+  all three consent states including explicit denial, every one returning `noErr` and every
+  target dying (findings §5). Consent is not consulted when the event is sent. If `-1743` ever
+  does appear here it remains terminal immediately and is not retried — a denied *permission
+  request* fails identically forever — but no retry policy should be designed around it.
 - A per-app `forceTerminate` opt-in remains possible in the future (`TASK-104`). It is not in
   the MVP.
 

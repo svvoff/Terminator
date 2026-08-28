@@ -63,7 +63,7 @@ without a migration.
 | ID | Title | Priority | Risk | Depends on |
 |---|---|---|---|---|
 | TASK-003 | Rule model and durable config store | P0 | low | TASK-002 |
-| TASK-006 | Menu bar popover: app list, add/remove, limit, enable toggle, live countdown | P1 | medium | TASK-003, TASK-004, TASK-005 |
+| TASK-006 | Menu bar popover: app list, add/remove, limit, enable toggle, live countdown | P1 | medium | TASK-003, TASK-004 |
 
 ## Risk areas
 

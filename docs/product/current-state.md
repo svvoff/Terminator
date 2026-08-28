@@ -24,8 +24,12 @@ seventeen sends of the hand-rolled `'aevt'/'quit'`, seventeen deaths — includi
 made while consent was **explicitly denied**. Findings §5 carries the table.
 
 For the limiter, the permission cost is therefore **zero**, and `TASK-005` — pre-warm, per-app
-consent state, deep link into System Settings — has nothing left to do. Its fate is an open
-decision, not a cleanup; see `docs/ai/execution-state.md`.
+consent state, deep link into System Settings — had nothing left to do. **It was deferred on
+2026-08-28**, and with it went the consent surface of TASK-006 and the justification for
+TASK-004's `.appFirstObserved` seam; both cards carry a dated amendment saying so. The five
+documents that still described consent as the product's standing permission cost — EPIC-02,
+DEC-005, DEC-006, DEC-002, DEC-004 — were corrected in the same pass, each edit marked in place
+with what it used to say and which measurement refuted it.
 
 The same spike refuted findings §4 in passing: `NSWorkspace.runningApplications` **lags the
 kernel**, by up to 19 s on one subject and by seconds on three of four of its trials, while the
@@ -43,10 +47,12 @@ memory, `save` throws, and `ConfigStore.quarantine` exposes the reason for TASK-
 The verbatim bytes and the shared `writeDurably(_:to:)` contract are in
 `docs/ai/execution-log/latest.md`.
 
-**No task is currently selected.** TASK-004 is the only substantive candidate left, and it is
-`risk: high` in the zone that quits other people's applications, so it needs the author's
-explicit go-ahead. TASK-008 (P2) writes into `~/Library/LaunchAgents`; TASK-005 is waiting on a
-decision rather than on work.
+**No task is currently selected. TASK-004 is next by the selection policy** — the only P0 left
+in `ready/`, and the card both remaining P1s wait on. It is `risk: high` in the zone that quits
+other people's applications, so it needs the author's explicit go-ahead, and its packet has to
+reckon with findings §4: its detection is KVO on `runningApplications`, the list that was
+measured lagging. TASK-008 (P2, `~/Library/LaunchAgents`) is the only other card whose
+dependencies are closed.
 
 ## Active constraints
 

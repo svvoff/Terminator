@@ -66,13 +66,13 @@ suspending-чтение для накопления фокуса), `Date()` вн
 | TASK-002 | medium | `swift-build` + `manual-checklist` | Первая сборка бандла. Юнит-тестов не добавляет намеренно — их отсутствие здесь не пробел. |
 | TASK-003 | low | `swift-build` + `swift-test` | Полностью проверяется без человека. |
 | TASK-004 | high | `swift-build` + `swift-test` + `manual-checklist` | Плюс `swift build -c release` и грep-гейты. |
-| TASK-005 | medium | `swift-build` + `swift-test` + `manual-checklist` | Диалоги согласия — интерактивные. |
+| ~~TASK-005~~ | — | — | **Отложена 2026-08-28**: TASK-009 измерила, что путь quit согласия не спрашивает. |
 | TASK-006 | medium | `swift-build` + `swift-test` + `manual-checklist` | Меню-бар виден только человеку. |
 | TASK-007 | medium | `swift-build` + `swift-test` + `manual-checklist` | |
 | TASK-008 | low | `swift-build` + `swift-test` + `manual-checklist` | LaunchAgents — правка домашнего каталога. |
 | TASK-009 | high | `manual-checklist` | Спайк на живых приложениях. Продуктового кода не производит. |
 
-Семь карточек из девяти несут `manual-checklist`. Это свойство продукта, а не недоработка
+Семь карточек из восьми действующих несут `manual-checklist` (TASK-005 отложена). Это свойство продукта, а не недоработка
 бэклога: TCC, подпись и меню-бар не проверяются headless, и карточки говорят об этом прямо
 вместо того, чтобы изобретать headless-суррогат.
 

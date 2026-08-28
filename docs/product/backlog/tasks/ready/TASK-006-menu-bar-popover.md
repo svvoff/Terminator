@@ -4,7 +4,7 @@ title: "Menu bar popover: app list, add/remove, limit, enable toggle, live count
 epic: EPIC-03
 priority: P1
 risk: medium
-depends_on: [TASK-003, TASK-004, TASK-005]
+depends_on: [TASK-003, TASK-004]
 validation_profile: [swift-build, swift-test, manual-checklist]
 context_refs:
   - docs/product/decisions/index.md
@@ -282,3 +282,33 @@ surfaces and `consent` for a pre-warm it triggers.
 - No decision card changes are expected. If the interaction turns out to need one, escalate
   rather than editing DEC-004 or DEC-009 in passing.
 - Move this card to `tasks/done/YYYY-MM/` on acceptance.
+
+
+---
+
+## Amendment · 2026-08-28 — the consent surface is gone
+
+**TASK-005 is deferred** (see `tasks/deferred/`), and `depends_on` above dropped it in the same
+edit. TASK-009 measured that the quit path consults no Apple Events consent at all — seventeen
+sends, five applications, three consent states including explicit denial (findings §5).
+
+Everything in the sections above that consumes TASK-005 is **out of scope** and must not be
+built:
+
+- the per-app consent state (`ready`, `notAsked`, `denied`, `targetNotRunning`) and its row
+  rendering;
+- the deep link to System Settings → Privacy & Security → Automation;
+- the pre-warm call after a rule is added, and the wiring of TASK-004's `.appFirstObserved`
+  effect to it;
+- the manual-checklist step asserting that consent is acquired at add-app time and that no
+  prompt appears at expiry.
+
+The rest of the card stands: the app list, add/remove, the limit editor bound to
+`Limit.allowedMinutes`, the enable toggle as DEC-001's re-anchoring action, the live countdown,
+and the **quarantine banner** reading `ConfigStore.quarantine` — that last one gains importance,
+because with the consent banner gone it is the popover's only failure surface, and DEC-004
+leaves no notification channel.
+
+This amendment removes scope. It does not add any, and it is not a licence to redesign the
+popover: whoever writes the packet reconciles the prose above against this section rather than
+rewriting the card.

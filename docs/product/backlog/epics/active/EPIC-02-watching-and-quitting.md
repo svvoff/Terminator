@@ -8,9 +8,11 @@ stage: Stage 1 — MVP
 
 ## Goal
 
-Detect when a watched app is running, know when its limit expires, quit it politely, and hold
-the Apple Events consent that makes the quit possible. This is the product's core mechanic and
-its only permission cost.
+Detect when a watched app is running, know when its limit expires, and quit it politely. This
+is the product's core mechanic, and it costs no permission at all. (This paragraph claimed
+Apple Events consent as the epic's permission cost until TASK-009 measured seventeen quit sends
+against five applications in three consent states — including consent explicitly denied — and
+found every one delivered and honoured; see findings §5.)
 
 ## Success criteria
 
@@ -81,7 +83,7 @@ its only permission cost.
 |---|---|---|---|---|
 | TASK-001 | Spike: signing identity, Apple Events consent, hand-rolled quit | P0 | high | — |
 | TASK-004 | Watch engine: KVO + sweep, deadlines, swappable expiry action | P0 | high | TASK-001, TASK-003 |
-| TASK-005 | Apple Events consent: pre-warm, per-app state, deep link | P0 | medium | TASK-001, TASK-003 |
+| ~~TASK-005~~ | Apple Events consent: pre-warm, per-app state, deep link | — | — | **deferred 2026-08-28** — TASK-009 measured that the quit path consults no consent (findings §5) |
 
 ## Risk areas
 

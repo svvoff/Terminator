@@ -51,9 +51,10 @@ than `NSRunningApplication.terminate()`, which escalates to SIGKILL (DEC-002, fi
 bounded polite retry — five sends spanning two minutes (at the deadline, then +30 s, +60 s,
 +90 s, +120 s) with the terminal `refused` state at +150 s — and `errAEEventNotPermitted
 (-1743)` terminal on its first occurrence; Apple Events consent pre-warmed per watched app at
-one of two moments — at add-app time when the target is already running, otherwise at its first
-observed launch — never at expiry, since the default prompt fires at kill time and would itself
-be a pre-quit dialog (findings §5). Tasks: TASK-001, TASK-004, TASK-005.
+no moment at all: TASK-009 measured that the quit path consults no Apple Events consent, on
+five applications across three consent states including explicit denial, so the pre-warm this
+paragraph used to describe has nothing to warm (findings §5). Tasks: TASK-001, TASK-004.
+**TASK-005 deferred 2026-08-28.**
 
 **EPIC-03 — Rules and interface.** A rule model with a durable, versioned JSON store under
 `~/Library/Application Support/com.svvoff.terminator/` from a hardcoded identifier constant, no
@@ -194,7 +195,7 @@ Epic cards live in `../../backlog/epics/active/`.
 | Epic | Name | Tasks |
 |---|---|---|
 | EPIC-01 | Bundle and lifecycle | TASK-002, TASK-008 |
-| EPIC-02 | Watching and quitting | TASK-001, TASK-004, TASK-005 |
+| EPIC-02 | Watching and quitting | TASK-001, TASK-004 (TASK-005 deferred) |
 | EPIC-03 | Rules and interface | TASK-003, TASK-006 |
 | EPIC-04 | Focus statistics | TASK-007 |
 

@@ -18,9 +18,12 @@ framework, requests no notification authorisation, and has nothing to onboard.
 Two OS-generated dialogs remain outside our control. They are explicitly **not** violations of
 this decision:
 
-1. **The one-time Apple Events (Automation) consent prompt** for each watched app. It is
-   produced by macOS, not by our code, and `TASK-005` moves it to add-app / first-launch time
-   precisely so it does not appear at kill time.
+1. **The one-time Apple Events (Automation) consent prompt**, if anything ever raises it. It
+   is produced by macOS, not by our code. (This item used to say `TASK-005` moves the prompt to
+   add-app time so it cannot appear at kill time. TASK-009 measured that **no prompt appears at
+   kill time at all**: the quit is sent with `kAEDoNotPromptForUserConsent` and consent is never
+   consulted — findings §5. The limiter raises no consent dialog, so there is nothing to move,
+   and `TASK-005` is deferred.)
 2. **The one-time "Background items added" notification** posted by Background Task Management
    when the login item is registered (`TASK-008`).
 
@@ -34,11 +37,13 @@ A warning turns a mechanical rule into a negotiation. "Telegram closes in 60 sec
 exactly one behaviour — a scramble to keep using it for another 60 seconds — and the moment of
 being interrupted is the intervention. Softening it removes the product.
 
-There is also a practical reason to keep this absolute. Consent for `'aevt'/'quit'` is not
-exempt, so by default macOS itself puts a modal dialog on screen at the instant of the first
-quit attempt, and `AESendMessage` blocks the calling thread until the user answers (findings
-§5). That is a dialog immediately before closing — produced by the OS, not by us. The only way
-to honour this decision is to pre-warm consent, which is why `TASK-005` exists at all.
+This paragraph used to carry a second, practical reason: that macOS would put a modal consent
+dialog on screen at the instant of the first quit attempt, so consent had to be pre-warmed to
+honour the decision. **That reason is gone.** TASK-009 measured the hand-rolled quit —
+`kAENoReply | kAEDoNotPromptForUserConsent` — delivered and honoured against five applications
+with consent never asked and with consent explicitly denied, raising no dialog and blocking
+nothing (findings §5). The decision now rests entirely on the argument above, which was always
+the real one: a warning turns a mechanical rule into a negotiation.
 
 ## Alternatives considered
 
@@ -77,7 +82,8 @@ already exists as the rule's enable toggle (DEC-001).
 
 - `TASK-004` — the engine's expiry path emits a quit effect and nothing else. There is no
   "warn" effect in the `Effect` enum.
-- `TASK-005` — consent pre-warming exists to keep the OS consent prompt away from kill time.
+- `TASK-005` — **deferred 2026-08-28.** Consent pre-warming existed to keep the OS consent
+  prompt away from kill time; TASK-009 measured that no prompt appears there.
 - `TASK-006` — the popover shows a live countdown as ambient status; it must not raise, flash
   or focus itself as a deadline approaches.
 - `TASK-008` — the one-time "Background items added" notice is expected and is not a bug.

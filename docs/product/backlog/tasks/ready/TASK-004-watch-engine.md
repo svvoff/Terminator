@@ -520,3 +520,22 @@ log show --predicate 'subsystem == "com.svvoff.terminator"' --style compact --la
   executor edit. In particular, do not re-litigate DEC-001's no-grace rule, DEC-003's no-cooldown
   rule, or the accepted interruption-tax risk in DEC-008.
 - Move this card to `tasks/done/YYYY-MM/` on acceptance.
+
+
+---
+
+## Amendment · 2026-08-28 — `.appFirstObserved` has no consumer any more
+
+**TASK-005 is deferred** on TASK-009's measurement: the quit path consults no Apple Events
+consent, so there is nothing to pre-warm (findings §5). The sections above justify the
+`.appFirstObserved(bundleIdentifier:pid:)` effect as a **pre-warm seam for TASK-005**, and call
+TASK-005 its only consumer. That consumer no longer exists in the milestone.
+
+The effect itself is one enum case emitted by the reducer, and it is **still in scope**: it is
+the honest statement of a fact the engine knows and nobody currently uses, it costs one case and
+one test, and Stage 3 or a returning TASK-005 would need it back. What changes is only its
+justification — do not describe it in the packet as serving TASK-005.
+
+What must **not** happen, unchanged from the card above: no consumer is wired to it in this
+task. Previously that was because TASK-006 would do the wiring; now it is because there is
+nothing to wire it to.

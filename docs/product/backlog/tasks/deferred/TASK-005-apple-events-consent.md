@@ -16,6 +16,29 @@ context_refs:
 
 # TASK-005 — Apple Events consent: pre-warm, per-app state, deep link
 
+## Why deferred
+
+**Deferred 2026-08-28 by the author, on TASK-009's measurement.** This card exists to keep the
+OS consent dialog away from the moment of closing. TASK-009 measured that no dialog appears
+there: the hand-rolled quit is sent with `kAEDoNotPromptForUserConsent`, consent is never
+consulted, and the target dies whether consent was never asked or **explicitly denied** —
+seventeen sends across five applications spanning first-party/third-party,
+sandboxed/unsandboxed, Mac App Store/direct, document-based/not and scriptable/not
+(findings §5). There is nothing to pre-warm and no denial to route around.
+
+The one piece of this card with surviving value — `NSAppleEventsUsageDescription`, which macOS
+renders verbatim if a dialog is ever raised — already shipped in `Packaging/Info.plist` with
+TASK-002.
+
+**The ten-section contract below is left intact rather than stripped**, against the shape
+`backlog/index.md` describes for deferred cards. Deleting a written contract to satisfy a
+template would cost work and buy nothing. But it is **not** promotable as written: promoting it
+means re-deriving the whole card against findings §5 as it now reads, not moving the file back.
+
+What would bring it back: the product sending an Apple Event that is **not** `'aevt'/'quit'`,
+or a macOS release that puts the gate back on the quit path. Either is a new measurement, not a
+guess.
+
 ## Goal
 
 Hold and model the Apple Events consent that DEC-002's polite quit depends on, and acquire it at

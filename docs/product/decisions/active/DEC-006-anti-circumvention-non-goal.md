@@ -69,8 +69,11 @@ would be building against nobody.
   only a simplification.** Running state is reconstructed at every reconciliation sweep from
   `p_starttime` (findings §3), so persistence would buy nothing except defeating a restart —
   which is an anti-circumvention purpose.
-- The product needs no privileged installation step. Its only permission cost stays Apple
-  Events consent (findings §5), which exists to close apps, not to guard the app.
+- The product needs no privileged installation step, and no permission grant either. (This
+  bullet named Apple Events consent as the standing permission cost until TASK-009 measured the
+  quit being delivered and honoured with consent never asked and with consent explicitly
+  denied — findings §5.) Nothing the product asks the user for guards the app; there is
+  nothing to ask for.
 
 ## Applies to
 

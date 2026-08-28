@@ -70,7 +70,9 @@ returned live values with Accessibility, Screen Recording and Input Monitoring a
 **Per-window or per-document statistics.** Rejected. Reading window *titles* requires Screen
 Recording: with it denied, `CGWindowListCopyWindowInfo` returned an owner name for all 51
 on-screen windows but a window name for only 2 (findings §1). That is a hard permission cliff,
-and this product's only permission cost is Apple Events.
+and this product asks for no permission at all. (This line read "this product's only permission
+cost is Apple Events" until TASK-009 measured that even the quit path consults no consent —
+findings §5.)
 
 **Deferring collection to Stage 2 with the chart.** Rejected — it would ship the chart with an
 empty database.
