@@ -126,8 +126,38 @@ repeat sends stack a second sheet was **not** established: the operator describe
 save-changes dialog when asked which button to press, but was never asked to count them.
 
 Termination was watched through two independent views — `sysctl(KERN_PROC_PID)` and
-`NSWorkspace.runningApplications` — which never diverged by more than 16 ms. §2's KVO source
-does not lag the kernel.
+`NSWorkspace.runningApplications` — which never diverged by more than 16 ms **on this subject**.
+That does not generalise: see the TASK-009 measurement below.
+
+### Measured 2026-08-27, macOS 26.6.2 (25G83), five subjects — TASK-009
+
+**The two views do diverge, and the workspace list is the one that lags.** The 16 ms figure
+holds for TextEdit, Calculator, VLC and Obsidian — across twelve sends the largest gap was
+16 ms. **Todoist is different:**
+
+| Todoist trial | `sysctl(KERN_PROC_PID)` | `NSWorkspace.runningApplications` | gap |
+|---|---|---|---|
+| never asked | 0.770 s | not seen gone within the 20 s window | **> 19 s** |
+| never asked, repeat | 0.515 s | 0.522 s | 7 ms |
+| denied | 0.517 s | 2.047 s | **1.53 s** |
+| granted | 0.517 s | 1.034 s | **0.52 s** |
+
+Todoist also dies about twice as slowly as the other four: ~0.52 s against a 0.253–0.262 s
+cluster that those twelve sends never left.
+
+> Consequence: **death is confirmed on the kernel, never on the workspace list.** Code that
+> concludes "still running" from `NSWorkspace.runningApplications` can be seconds behind the
+> truth, and the lag is per-application and not constant. The two-view cross-check earns its
+> keep precisely because the views disagree.
+
+One observation from the first Todoist trial is recorded and **not** explained: a new Todoist
+process appeared 31 s after the quit, with no operator involvement (asked and confirmed), no
+`LaunchAgent` in `~/Library/LaunchAgents` or `/Library/LaunchAgents`, and nothing in
+`launchctl list`. It did not reproduce — two subsequent controlled quits, watched by `ps` at
+0.5 s for 90 s and 120 s, saw no relaunch at all. That first run had no per-second process
+tracking, so whether the app returned inside the observation window or after it **cannot** be
+established from the evidence. It is an open watch item for `TASK-004`, not a property of
+Todoist.
 
 `kAENormalTimeout` **does not exist** in the SDK. The constants are `kAEDefaultTimeout` (-1)
 and `kNoTimeOut` (-2), `AEDataModel.h:431-432`. The prescription above should read
@@ -163,8 +193,68 @@ the send:
 Negative control: an untouched TextEdit stayed alive 20 s, so the event caused the quits.
 
 This refutes two claims this section used to carry: no prompt fires at kill time, and
-`AESendMessage` does not return `-1743` on denial. **Scope: one target.** Whether every app
-behaves this way was not measured, and `TASK-005` should not be cancelled on a single subject.
+`AESendMessage` does not return `-1743` on denial.
+
+### Measured 2026-08-27, macOS 26.6.2 (25G83), five subjects — TASK-009
+
+**The result generalises: consent is not on the quit path at all.** The one-target caveat this
+section used to carry is retired. Five applications spanning first-party/third-party,
+sandboxed/unsandboxed, Mac App Store/directly distributed, document-based/not and
+scriptable/not were measured in all three consent states. **Seventeen quit sends, seventeen
+deaths, no exceptions.**
+
+| subject | bundle id | party | sandboxed | distribution | scriptable | never asked (`-1744`) | denied (`-1743`) | granted (`noErr`) |
+|---|---|---|---|---|---|---|---|---|
+| TextEdit | `com.apple.TextEdit` | Apple | yes | system | yes | quit, 0.254 s | quit, 0.259 s | quit, 0.255 s |
+| Calculator | `com.apple.calculator` | Apple | yes | system | **no** | quit, 0.258 s | quit, 0.258 s | quit, 0.257 s |
+| VLC | `org.videolan.vlc` | third | **no** | direct | yes | quit, 0.257 s | quit, 0.257 s | quit, 0.260 s |
+| Todoist | `com.todoist.mac.Todoist` | third | yes | **App Store** | no | quit, 0.515–0.770 s | quit, 0.517 s | quit, 0.517 s |
+| Obsidian | `md.obsidian` | third | no | direct | no | quit, 0.262 s | quit, 0.257 s | quit, 0.253 s |
+
+`AESendMessage` returned `noErr` in 0.003–0.007 s in every one of the seventeen sends,
+including every send made while the (client, target) pair was **explicitly denied**. Every
+trial was preceded by `tccutil reset AppleEvents com.svvoff.terminator.probe` whose effect was
+verified at `-1744` immediately before the trial, and each subject had a negative control —
+launched, nothing sent — that stayed alive 20 s.
+
+> Consequence: **the permission API describes a gate the quit path does not pass through.**
+> `AEDeterminePermissionToAutomateTarget` reports `-1744`, `-1743` and `noErr` faithfully, and a
+> `kAENoReply | kAEDoNotPromptForUserConsent` quit is delivered and honoured regardless of what
+> it reports. On this evidence `TASK-005` — pre-warm, per-app consent state, deep link into
+> System Settings — has no reason to exist for the limiter: there is nothing to pre-warm and no
+> denial to route around. That is a recommendation from measurement; the card itself is not
+> edited here.
+>
+> Three statements elsewhere in the repository follow the retired caveat and are now wrong as
+> written: DEC-002 treats `errAEEventNotPermitted (-1743)` as an immediately terminal state on
+> the quit path, DEC-004 worries that macOS raises a consent dialog at kill time, and the
+> "only permission cost is Apple Events" phrasing in EPIC-02, DEC-005 and DEC-006 overstates a
+> cost that is, for the limiter, zero.
+
+**Neither scriptability nor first-party status explains it.** Calculator carries no
+`NSAppleScriptEnabled`, opens no documents and ships no scripting definition; it quit exactly
+like TextEdit. VLC, Obsidian and Todoist are third-party; Todoist is sandboxed and from the Mac
+App Store. Nothing on any of the four axes changed the outcome.
+
+**An Electron app's helper processes did not survive the quit.** Obsidian ran 4 processes;
+after the main process died `ps` found no process from `Obsidian.app` at all. The polite quit
+took the whole tree with it, leaving no orphaned helper to deal with (cf. §10).
+
+**The consent dialog is one template for every target**, captured verbatim from screenshots for
+all five subjects:
+
+> **"Probe" wants access to control "<target>". Allowing control will provide access to
+> documents and data in "<target>", and to perform actions within that app.**
+>
+> This throwaway probe measures how macOS handles Apple Events consent. It is not a product.
+>
+> `Don't Allow`  `Allow`
+
+Only the target's name changes. Two details reconfirmed on 26.6.2, both product-facing: the
+client is named by the **`.app` filename** ("Probe"), not `CFBundleName`; and the second line is
+`NSAppleEventsUsageDescription` rendered verbatim. The template promises access to "documents
+and data" even for **Calculator**, which has none — the wording is the system's and does not
+adapt to what the target can actually do.
 
 Confirmed, and unchanged:
 

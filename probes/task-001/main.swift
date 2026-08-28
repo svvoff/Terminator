@@ -1,11 +1,16 @@
-// TASK-001 probe — throwaway.
+// TASK-001 probe — throwaway. Reused, deliberately, by TASK-009.
 //
-// Not product code, not a test fixture, not a dependency of any later card. Its only job is
-// to answer the four open questions at the bottom of docs/product/recon/macos-findings.md and
-// then stop existing.
+// Not product code and not a test fixture. It answered the four open questions at the bottom
+// of docs/product/recon/macos-findings.md; TASK-009 then reused it to ask whether §5's
+// no-consent-needed result holds against apps other than TextEdit.
 //
-// Safety rules taken verbatim from the task card, all enforced below:
-//   * one hardcoded allow-list entry; the probe refuses to address anything else;
+// TASK-001's header used to say "not a dependency of any later card". TASK-009's card retires
+// that line on purpose: the non-goal existed to stop throwaway code becoming product
+// infrastructure, and TASK-009 is another throwaway spike rather than the product, so the
+// reuse keeps the rule's spirit while breaking its letter.
+//
+// Safety rules taken verbatim from the task cards, all enforced below:
+//   * a hardcoded allow-list, and the probe refuses to address anything outside it;
 //   * the pid is re-read at the moment of use and the bundle identifier re-confirmed
 //     immediately before every send — never cached across a use boundary (findings §10);
 //   * no forced-termination API and no process signals of any kind — the polite Apple Event
@@ -21,9 +26,24 @@ import Foundation
 
 // MARK: - Allow-list
 
-/// The ONLY bundle identifier this probe may ever address. There is no second entry and no
-/// way to pass one in.
-let allowedBundleID = "com.apple.TextEdit"
+/// The ONLY bundle identifiers this probe may ever address, and there is no way to pass one
+/// in from the command line — widening this list means editing this file and rebuilding.
+/// That is the whole value of the guard, and TASK-009's card names a command-line target
+/// parameter as grounds for rejection.
+///
+/// TASK-001 had one entry. TASK-009 widened it to five, chosen by the operator to span the
+/// axes its card names: first-party vs third-party, sandboxed vs not, Mac App Store vs
+/// directly distributed, document-based vs not, scriptable vs not.
+///
+/// Which one a run addresses is decided by the state of the machine, not by an argument:
+/// exactly one of them must be running. See `findSubject()`.
+let allowedBundleIDs: [String] = [
+    "com.apple.TextEdit",       // Apple, sandboxed, document-based, scriptable
+    "com.apple.calculator",     // Apple, sandboxed, NOT document-based, NOT scriptable
+    "org.videolan.vlc",         // third party, NOT sandboxed, document-based, scriptable
+    "com.todoist.mac.Todoist",  // third party, sandboxed, Mac App Store
+    "md.obsidian"               // third party, Electron — many helper processes (findings §10)
+]
 
 // MARK: - Output channel
 //
@@ -87,12 +107,38 @@ func seconds(_ duration: ContinuousClock.Duration) -> String {
 
 // MARK: - Subject resolution
 
+/// Every running process whose bundle identifier is on the allow-list, whatever its
+/// activation policy. Used to pick the subject, and to explain a refusal.
+func allowedRunningApps() -> [NSRunningApplication] {
+    NSWorkspace.shared.runningApplications.filter {
+        guard let identifier = $0.bundleIdentifier else { return false }
+        return allowedBundleIDs.contains(identifier)
+    }
+}
+
 /// Looks the subject up fresh, every time. Nothing about the target is ever stored between
 /// calls — that is the whole point of findings §10.
+///
+/// With five allow-listed apps and no command-line target parameter, the subject is not
+/// chosen: it is *the* allow-listed app that happens to be running. Zero is a refusal, and so
+/// is more than one — findings §10 records that several live NSRunningApplication instances
+/// can share a bundle identifier, and a probe whose job is to quit things must never pick on
+/// the operator's behalf. Ambiguity is resolved by closing the extra app, not by guessing.
 func findSubject() -> NSRunningApplication? {
-    NSWorkspace.shared.runningApplications.first {
-        $0.bundleIdentifier == allowedBundleID && $0.activationPolicy == .regular
+    let running = allowedRunningApps()
+    let candidates = running.filter { $0.activationPolicy == .regular }
+    guard candidates.count == 1 else {
+        emit("  REFUSED: exactly one allow-listed .regular app must be running, found \(candidates.count)")
+        if running.isEmpty {
+            emit("    (nothing from the allow-list is running)")
+        }
+        for app in running {
+            emit("    \(app.bundleIdentifier ?? "nil") pid=\(app.processIdentifier) "
+                + "policy=\(app.activationPolicy.rawValue) isTerminated=\(app.isTerminated)")
+        }
+        return nil
     }
+    return candidates[0]
 }
 
 /// Builds an address descriptor for the subject and hands it to `body`, or refuses.
@@ -101,16 +147,18 @@ func findSubject() -> NSRunningApplication? {
 /// can hold a pid across a use boundary even by accident.
 func withSubjectTarget<T>(_ body: (UnsafePointer<AEAddressDesc>, pid_t) -> T?) -> T? {
     guard let app = findSubject() else {
-        emit("  REFUSED: \(allowedBundleID) is not running — nothing was addressed")
+        // findSubject already emitted what it saw and why it refused.
         return nil
     }
     // Re-confirm identity at the moment of use, then read the pid (findings §10).
-    guard app.bundleIdentifier == allowedBundleID, !app.isTerminated else {
+    guard let identifier = app.bundleIdentifier,
+          allowedBundleIDs.contains(identifier),
+          !app.isTerminated else {
         emit("  REFUSED: subject identity changed between lookup and use — nothing was addressed")
         return nil
     }
     var pid = app.processIdentifier
-    emit("  subject: \(allowedBundleID) pid=\(pid)")
+    emit("  subject: \(identifier) pid=\(pid)")
 
     var desc = AEAddressDesc()
     let created = AECreateDesc(typeKernelProcessID, &pid, MemoryLayout<pid_t>.size, &desc)
@@ -147,14 +195,14 @@ func printIdentity() {
 
 func printStatus() {
     emit("== subject status ==")
-    let all = NSWorkspace.shared.runningApplications.filter { $0.bundleIdentifier == allowedBundleID }
-    if all.isEmpty {
-        emit("  \(allowedBundleID): not running")
-        return
-    }
+    let all = allowedRunningApps()
     for app in all {
-        emit("  \(allowedBundleID): pid=\(app.processIdentifier) "
+        emit("  \(app.bundleIdentifier ?? "nil"): pid=\(app.processIdentifier) "
             + "policy=\(app.activationPolicy.rawValue) isTerminated=\(app.isTerminated)")
+    }
+    for identifier in allowedBundleIDs
+    where !all.contains(where: { $0.bundleIdentifier == identifier }) {
+        emit("  \(identifier): not running")
     }
 }
 
@@ -302,7 +350,8 @@ func usage() {
       deadpid <pid>               permission check against a pid proven dead
       q2                          question 2 combined trial
 
-    The only app this probe can address is \(allowedBundleID).
+    This probe can address only these apps, and exactly one of them must be running:
+      \(allowedBundleIDs.joined(separator: "\n      "))
     """)
 }
 

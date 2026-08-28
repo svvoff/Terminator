@@ -55,7 +55,7 @@ swiftc -o "$APP/Contents/MacOS/probe" \
 USAGE_ENTRY=""
 if [[ $USAGE_DESCRIPTION -eq 1 ]]; then
   USAGE_ENTRY='	<key>NSAppleEventsUsageDescription</key>
-	<string>The TASK-001 probe measures Apple Events consent behaviour against TextEdit.</string>'
+	<string>This throwaway probe measures how macOS handles Apple Events consent. It is not a product.</string>'
 fi
 
 cat > "$APP/Contents/Info.plist" <<EOF

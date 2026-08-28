@@ -16,34 +16,37 @@ Stages 2 (statistics UI), 3 (scheduling), 4 (distribution) are future.
 
 ## Current focus
 
-**TASK-003 is done** (accepted 2026-08-27), and with it the product has a durable configuration
-of its own and its first unit tests: 22 synchronous tests in four suites, 0.09 s, no sleeps. It
-was the first card validated end to end with nobody at the keyboard.
+**TASK-009 is done** (accepted 2026-08-28, measured 2026-08-27), and it settled the question
+that was hanging over the whole expiry path: **quitting another application needs no Apple
+Events consent at all.** Five subjects spanning first-party/third-party, sandboxed/unsandboxed,
+Mac App Store/direct, document-based/not and scriptable/not; three consent states each;
+seventeen sends of the hand-rolled `'aevt'/'quit'`, seventeen deaths — including every send
+made while consent was **explicitly denied**. Findings §5 carries the table.
 
-What it settled that every later card leans on. The rules file is
-`~/Library/Application Support/com.svvoff.terminator/config.json` at `schemaVersion: 1`; `rules`
-is a JSON **object keyed by bundle identifier**, so two rules for one app are not expressible in
-the file's shape. The limit is a tagged object `{ "kind": "constant", "limitSeconds": Int }`,
-valid only as whole minutes from 1 to 480 (`Limit.allowedMinutes`). `enabledAt` is an ISO 8601
-string without fractional seconds, or absent, or `null` — and absent means disabled; there is no
-boolean anywhere (DEC-001). The verbatim bytes are recorded in `docs/ai/execution-log/latest.md`.
+For the limiter, the permission cost is therefore **zero**, and `TASK-005` — pre-warm, per-app
+consent state, deep link into System Settings — has nothing left to do. Its fate is an open
+decision, not a cleanup; see `docs/ai/execution-state.md`.
 
-Two shared pieces live in `TerminatorCore` and are reused rather than reimplemented:
-`writeDurably(_:to:)` — temp beside the destination, `F_FULLFSYNC`, `rename(2)`, directory
-`fsync` — which TASK-007 and TASK-008 call for their own files, and `TerminatorIdentity`
-`.bundleIdentifier`, the single occurrence of the identifier literal in `Sources/`.
+The same spike refuted findings §4 in passing: `NSWorkspace.runningApplications` **lags the
+kernel**, by up to 19 s on one subject and by seconds on three of four of its trials, while the
+other four subjects stayed within 16 ms. Death is confirmed on the kernel, never on the
+workspace list — which matters directly to TASK-004, whose detection is KVO on that list.
 
-The store's third contribution is **quarantine**: an unparseable file, a future `schemaVersion`
-or a rule that breaks a model invariant leaves the bytes untouched, keeps the previous good
-config in memory and makes `save` throw. `ConfigStore.quarantine` exposes the reason as readable
-state, and TASK-006 must render it — DEC-004 leaves no notification channel, so a silent
-quarantine would swallow every edit the user makes with zero symptoms.
+Before it, **TASK-003** gave the product its durable configuration and its first unit tests:
+22 synchronous tests in four suites, 0.09 s, no sleeps. The rules file is
+`~/Library/Application Support/com.svvoff.terminator/config.json` at `schemaVersion: 1`, `rules`
+is a JSON object keyed by bundle identifier, the limit is a tagged object valid only as whole
+minutes from 1 to 480, and `enabledAt` is an ISO 8601 string — absent means disabled, with no
+boolean anywhere (DEC-001). An unparseable file, a future `schemaVersion` or a rule that breaks
+a model invariant puts the store in **quarantine**: bytes untouched, last good config kept in
+memory, `save` throws, and `ConfigStore.quarantine` exposes the reason for TASK-006 to render.
+The verbatim bytes and the shared `writeDurably(_:to:)` contract are in
+`docs/ai/execution-log/latest.md`.
 
-**No task is currently selected.** Every remaining card with its dependencies closed sits behind
-a gate that needs the author's explicit go-ahead: TASK-004 and TASK-009 are `risk: high` and quit
-other people's applications, TASK-008 writes into `~/Library/LaunchAgents`, and TASK-005 waits on
-TASK-009 by the author's decision — the "quit needs no consent" finding was measured against one
-application, which is not a basis for cancelling a card.
+**No task is currently selected.** TASK-004 is the only substantive candidate left, and it is
+`risk: high` in the zone that quits other people's applications, so it needs the author's
+explicit go-ahead. TASK-008 (P2) writes into `~/Library/LaunchAgents`; TASK-005 is waiting on a
+decision rather than on work.
 
 ## Active constraints
 
@@ -70,7 +73,9 @@ These bite on every task, not only on the ones that name them.
   `Apple Development: Vladimir Voytsekhovskiy (63PZ483Z52)` identity is not used or touched.
 - Detection is KVO on `runningApplications` plus a periodic reconciliation sweep; workspace
   notifications are not a source of truth (findings §2). Launch time comes from `p_starttime`,
-  never from `Date()` (findings §3).
+  never from `Date()` (findings §3). **Death, however, is confirmed on the kernel** —
+  `NSWorkspace.runningApplications` was measured lagging `sysctl(KERN_PROC_PID)` by seconds,
+  once by more than 19 s, and the lag is per-application and not constant (findings §4).
 - `TerminatorCore` is a pure synchronous reducer: Foundation only, no AppKit, no async, no
   real clock (findings §13).
 - The on-disk config format is a human-facing contract, not an implementation detail. Changing
@@ -96,15 +101,19 @@ These bite on every task, not only on the ones that name them.
   `Terminator Dev` is a self-signed root trusted through the user's keychain domain. A build run
   from a sandbox fails it with `CSSMERR_TP_NOT_TRUSTED` on an intact bundle, and the failure reads
   like a signing defect (findings §6).
-- Apple Events consent is per (client, target) pair and can only be requested against a
-  running target, so it is acquired at add-app time when the target is running and at first
-  observed launch otherwise — never at expiry (findings §5). **Under verification:** TASK-001
-  measured that the quit path does not need that consent at all, but against a single target.
+- Apple Events consent is per (client, target) pair and can only be requested against a running
+  target — but **the quit path does not consult it**, measured across five subjects and three
+  consent states (findings §5). The limiter pays no permission cost. Five documents still carry
+  the old, more expensive story (EPIC-02, DEC-005, DEC-006, DEC-002, DEC-004) and are pending a
+  decision, not a rewrite.
 - The quit event returns `noErr` for "accepted for delivery" and the app can stay alive
   indefinitely behind an unsaved-changes sheet — measured at 6 minutes. Death must be observed
   on the app object, never inferred from the send (findings §4).
 - Anything that touches TCC must be launched with `open`, not exec'd out of `Contents/MacOS/`,
   or the consent lands on the terminal instead of the app (findings §5, §7).
+- One observation is on watch, not settled: a subject reappeared 31 s after being quit, with no
+  operator action and no LaunchAgent behind it. It did not reproduce in two controlled repeats.
+  TASK-004 should notice if it happens again rather than assume it cannot (findings §4).
 - Every detection path is edge-triggered: a missed edge means a permanently unwatched app with
   zero symptoms (findings §2).
 - Accepted product risk: the interruption tax (DEC-008). Review trigger is one week of

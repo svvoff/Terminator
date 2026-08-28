@@ -28,169 +28,14 @@
 
 ## Ротация
 
-Запись **TASK-001** (спайк подписи, согласия Apple Events и вежливого quit, ACCEPT 2026-08-27)
-вытеснена в `archive/2026-08.md` при добавлении записи TASK-002: журнал перешёл ориентир в 400
-строк. Её выводы живут в findings §4, §5, §6 — за транскриптами ходить в архив.
+В `archive/2026-08.md` вытеснены две записи, обе по правилу 400 строк:
 
----
+- **TASK-001** — спайк подписи, согласия Apple Events и вежливого quit (ACCEPT 2026-08-27).
+  Выводы живут в findings §4, §5, §6.
+- **TASK-002** — SwiftPM-пакет, сборка бандла, подпись, череп в меню-баре (ACCEPT 2026-08-27).
+  Выводы живут в findings §6 и §8, а форма сборки — в `current-state.md`.
 
-## 2026-08-27 — TASK-002 — SwiftPM-пакет, сборка бандла, подпись, череп в меню-баре — ACCEPT
-
-**Что сделано.** Появился первый продуктовый код: `Package.swift` с тремя таргетами,
-`Packaging/Info.plist` из девяти ключей, `build.sh`, собирающий и подписывающий
-`build/Terminator.app`, и меню-бар-аксессуар с черепом DEC-009, нарисованным кодом. Три раунда
-исполнения, каждый отревьюен отдельным ходом.
-
-**Валидация.** L0 закрыл исполнитель, всё перепроверено оркестратором своими прогонами.
-Ручной чеклист выполнил автор на своей машине: два запуска бандла плюс третий после амендмента 2.
-
-**Решения и отклонения по ходу — три, все зафиксированы в карточке амендментами.**
-
-1. cdhash-гейт, написанный по букве пакета, не сработал — исправлен исполнителем, отклонение
-   принято (транскрипт ниже).
-2. Гейт переписан с блоклиста на fail-closed позитивную проверку (амендмент 1) — разрешение
-   пользователя на зону 1 получено явно.
-3. Состояние глаз глифа поднято в `App` и переключается кнопкой (амендмент 2): Review trigger
-   DEC-009 спрашивает про различимость **на фоне меню-бара**, а раунд 1 отвечал на этот вопрос
-   образцами в поповере, то есть отвечал на другой.
-
-**Имена, которые нужны следующим карточкам.** Адаптерный таргет — `TerminatorAppKit`, его
-публичное API сегодня: `enum MenuBarGlyphEyes { case idle, active }` и
-`func menuBarSkullImage(eyes:) -> NSImage`. Константы логирования — `TerminatorLog` в
-`Sources/TerminatorCore/LoggingIdentity.swift`: `TerminatorLog.subsystem` =
-`com.svvoff.terminator`, категории `TerminatorLog.Category.engine/.quit/.consent/.store/.focus/
-.loginItem` со значениями `engine`, `quit`, `consent`, `store`, `focus`, `loginitem`. Шаблон
-плиста — `Packaging/Info.plist`.
-
-### Подпись переживает пересборку — designated requirement побайтово
-
-Прогон A, односимвольная правка строкового литерала, прогон B, откат правки:
-
-```
-# прогон A
-designated => identifier "com.svvoff.terminator" and certificate leaf = H"74d582911cd0b2c7ff3961af4bb0561efd6a8f24"
-CDHash=b87d3ddb4a8d4bfc80e311679b268bbd7d698b4f
-
-# прогон B, после правки одного символа в строковом литерале
-designated => identifier "com.svvoff.terminator" and certificate leaf = H"74d582911cd0b2c7ff3961af4bb0561efd6a8f24"
-CDHash=a3d5f0d310cdbfbabedd13aecaf028c1060ee23c
-
-DR: ПОБАЙТОВО ОДИНАКОВ (cmp exit 0)
-CDHash: различается — контроль настоящий
-```
-
-Контроль по CDHash здесь не украшение: без него тест проходит и тогда, когда правка не изменила
-бинарь, то есть доказывает ничто.
-
-### Гейт по букве пакета не сработал — почему
-
-Пакет требовал снять префикс `designated => ` **с начала строки**. Прогон
-`./build.sh --adhoc-control` вышел с нулём:
-
-```
---- cdhash guard ---
-designated requirement: # designated => cdhash H"4dee3f67c68aa74c1fb245d80c83951e40f2b1a4"
---- codesign --verify --strict (терминальный шаг) ---
-EXIT=0
-```
-
-Перепроверено оркестратором на другом ad-hoc бандле:
-
-```
-сырое:             [# designated => cdhash H"10e8914b2d6adbdf7101a705d1af283b51ed471f"]
-strip-по-началу:   [# designated => cdhash H"10e8914b…"]   → гейт ПРОПУСТИЛ бы
-strip-по-подстроке:[cdhash H"10e8914b…"]                   → гейт срабатывает
-```
-
-Ad-hoc DR печатается с ведущим маркером комментария, сертификатный — без. Ушло в findings §6.
-
-### Одной верификации мало
-
-Тот же ad-hoc бандл:
-
-```
-codesign --verify --strict build/Terminator.app; echo EXIT=$?
-EXIT=0
-```
-
-Верификация подтверждает целость печати и молчит о том, кто подписал. Отсюда гейт стоит **до**
-неё, а не вместо.
-
-### Гейт после амендмента 1 — fail-closed
-
-```
-$ ./build.sh --self-test-guard
-ожидаемый designated requirement: identifier "com.svvoff.terminator" and certificate leaf = H"74d5…"
-  OK   ad-hoc подпись (cdhash) -> reject
-  OK   чужой сертификат (другой хеш листа) -> reject
-  OK   уехавший CFBundleIdentifier -> reject
-  OK   ожидаемый текст дословно -> accept
-self-test: 4 из 4 вердиктов верны                                    EXIT=0
-
-$ ./build.sh --adhoc-control                                          EXIT=1
-build.sh: DESIGNATED_REQUIREMENT_MISMATCH: … получено: cdhash H"10e8914b…"
-  (строки `--- codesign --verify --strict ---` в выводе нет: гейт стоит раньше)
-
-$ ./build.sh                                                          EXIT=0
-$ ./build.sh --bogus-flag                                             EXIT=2
-```
-
-Отказ гейта на чужом сертификате доказан синтетическими строками, **без подписи чужим
-сертификатом**: `Apple Development: Vladimir Voytsekhovskiy (63PZ483Z52)` не использовался,
-не экспортировался, не изменялся и не удалялся.
-
-### Верификация зависит от trust-домена — измерено случайно
-
-Один и тот же бандл, неизменный на диске, в двух оболочках подряд:
-
-```
-# оболочка без доступа к keychain (песочница)
-$ security find-identity -v -p codesigning
-     0 valid identities found
-$ codesign -d -r- build/Terminator.app
-designated => identifier "com.svvoff.terminator" and certificate leaf = H"74d5…"   # работает
-$ codesign --verify --strict build/Terminator.app
-build/Terminator.app: CSSMERR_TP_NOT_TRUSTED
-EXIT=1
-
-# обычная оболочка, тот же файл, минутами позже
-$ security find-identity -v -p codesigning
-     2 valid identities found
-$ codesign --verify --strict --verbose=2 build/Terminator.app
-build/Terminator.app: valid on disk
-build/Terminator.app: satisfies its Designated Requirement
-EXIT=0
-```
-
-`Terminator Dev` — самоподписанный корень, доверенный через пользовательский домен:
-`security dump-trust-settings` показывает у него 9 настроек `kSecTrustSettingsResultTrustRoot`.
-Ушло в findings §6. Практическое следствие: агент, собирающий в песочнице, получит красную
-сборку на исправном бандле, и падение будет выглядеть как дефект подписи.
-
-### Ручной чеклист — выполнил автор
-
-```
-TASK-002 activationPolicy: NSApplicationActivationPolicy(rawValue: 1) (rawValue 1) bundleIdentifier: com.svvoff.terminator
-```
-
-Строка печатается из `.onAppear` вью **внутри** поповера, поэтому её появление доказывает и то,
-что череп был виден в меню-баре, и то, что поповер открылся. `rawValue 1` = `.accessory`.
-
-Наблюдения автора:
-
-- череп читается в меню-барном размере, **в светлой и в тёмной теме**; геометрия DEC-009
-  принята и остаётся;
-- кнопка «Switch to active» меняет глиф **в самом меню-баре** — лейбл `MenuBarExtra` реактивен,
-  прямая форма `Image(nsImage:)` без `.id(…)` и пересозданий сцены. Ушло в findings §8: раздел
-  до этого говорил, какой **тип** лейбла переживает, но не говорил, перерисовывается ли он;
-- кнопка Quit закрывает приложение, пункт исчезает из меню-бара. Сигналами не пользовались.
-
-### Правка оркестратора inline
-
-После раунда 3 оркестратор поправил один комментарий в `PlaceholderView.swift`: он утверждал,
-что пара образцов в поповере закрывает Review trigger DEC-009 — ровно то, что амендмент 2
-опроверг. Правка только в комментарии; после неё `swift build -c release`, `./build.sh`,
-`check-forbidden.sh` и `codesign --verify --strict` прогнаны заново, все зелёные.
+За дословными транскриптами обеих — в архив.
 
 ---
 
@@ -343,3 +188,425 @@ SwiftPM-бинаря), а не выводит из него путь; лежит
   конфиг в памяти — прежним. Снимается только успешной перезагрузкой. TASK-006 обязана это
   отрисовать: без баннера отказ полностью бессимптомен (DEC-004 не оставляет канала
   уведомлений).
+
+---
+
+## 2026-08-28 — TASK-009 — Спайк: нужно ли согласие Apple Events для quit на других приложениях — ACCEPT
+
+(Измерения проведены 2026-08-27; сессия шла через полночь, приёмка 28-го — как и на TASK-001.)
+
+**Маршрут: inline (оркестратор), совместно с оператором.** Карточка несёт только
+`manual-checklist`, и каждое испытание упирается в интерактивный диалог согласия и в живое
+приложение, которое надо увидеть закрывшимся. Делегировать это нельзя ни субагенту, ни
+воркфлоу: некому нажать `Allow` и некому увидеть смерть — исполнитель молча отчитался бы об
+успехе. Та же причина, по которой CLAUDE.md запрещает делегировать TASK-001.
+
+**Машина:** macOS **26.6.2 (25G83)**, arm64. TASK-001 мерил на 26.5.2 (25F84), поэтому строка
+TextEdit здесь — не дубликат, а воспроизведение на другой версии ОС.
+
+**Что сделано.** Allow-list пробника TASK-001 расширен с одного идентификатора до пяти;
+параметра цели в командной строке не заведено (карточка называет его прямым основанием для
+отказа). Подопытный выбирается состоянием машины: ровно одно приложение из списка должно быть
+запущено, ноль и больше одного — отказ с перечислением увиденного. Пять подопытных, выбранных
+оператором, по три состояния согласия и отрицательному контролю каждый.
+
+### Ответ на вопрос карточки
+
+**Согласия на пути quit нет вообще. Семнадцать отправок — семнадцать смертей.**
+
+| Подопытный | Сторона | Sandbox | Дистрибуция | Scriptable | не спрашивали | запрещено | разрешено |
+|---|---|---|---|---|---|---|---|
+| TextEdit | Apple | да | система | да | 0.254 с | 0.259 с | 0.255 с |
+| Calculator | Apple | да | система | **нет** | 0.258 с | 0.258 с | 0.257 с |
+| VLC | третья | **нет** | прямая | да | 0.257 с | 0.257 с | 0.260 с |
+| Todoist | третья | да | **App Store** | нет | 0.515–0.770 с | 0.517 с | 0.517 с |
+| Obsidian | третья | нет | прямая | нет | 0.262 с | 0.257 с | 0.253 с |
+
+`AESendMessage` вернул `noErr` за 0.003–0.007 с во всех семнадцати отправках, включая все
+отправки при **явно запрещённом** согласии. Отрицательный контроль на каждого подопытного —
+запущен, ничего не отправлено, жив через 20 с.
+
+Ни одно испытание не засчитано без сброса, проверенного на `-1744` непосредственно перед ним.
+Все запуски пробника — через `run-probe.sh` (LaunchServices); прямого exec из
+`Contents/MacOS/` нет нигде.
+
+### Что это значит для бэклога
+
+- **TASK-005 незачем существовать в текущем виде.** Пре-варминг, состояние согласия на
+  приложение и диплинк в System Settings решают задачу, которой нет: греть нечего и обходить
+  нечего. Это рекомендация от измерения — карточка не правилась.
+- **DEC-002** трактует `-1743` как немедленно терминальное на пути quit — случай не возникает.
+- **DEC-004** опасается диалога согласия в момент закрытия — не возникает.
+- «Only permission cost is Apple Events» в EPIC-02, DEC-005, DEC-006 завышает цену, которая
+  для ограничителя равна нулю.
+
+### Второе измерение: findings §4 опровергнут
+
+`NSWorkspace.runningApplications` **отстаёт от ядра**, и §4 с его «никогда не расходились
+более чем на 16 мс» верен только для TextEdit. У Todoist:
+
+| Испытание | `sysctl` | `NSWorkspace` | Расхождение |
+|---|---|---|---|
+| не спрашивали | 0.770 с | не увидел за 20 с | **> 19 с** |
+| не спрашивали, повтор | 0.515 с | 0.522 с | 7 мс |
+| запрещено | 0.517 с | 2.047 с | **1.53 с** |
+| разрешено | 0.517 с | 1.034 с | **0.52 с** |
+
+У остальных четырёх за двенадцать отправок расхождение не превысило 16 мс. Todoist умирает и
+вдвое медленнее: ~0.52 с против кластера 0.253–0.262 с. **Для TASK-004: смерть подтверждается
+на ядре, не на списке рабочего пространства.**
+
+### Наблюдение, оставленное необъяснённым
+
+В первом испытании Todoist новый процесс приложения появился **через 31 с** после quit.
+Оператор его не запускал (спрошено прямо и подтверждено). Агента автозапуска нет ни в
+`~/Library/LaunchAgents`, ни в `/Library/LaunchAgents`, ни в `launchctl list`.
+
+**Не воспроизвелось.** Два контролируемых повтора с поллером `ps` каждые 0.5 с — 90 с и 120 с —
+возврата не увидели вовсе. В том первом прогоне поллера не было, поэтому по имеющимся данным
+**нельзя** сказать, вернулось приложение внутри окна наблюдения или после него. Записано как
+предмет наблюдения для TASK-004, а не как свойство Todoist. Механизм не выяснялся: карточка
+это прямо запрещает, а угаданный по поведению механизм — не находка.
+
+### Побочные наблюдения
+
+- **Electron-хелперы не пережили главный процесс.** У Obsidian было 4 процесса; после смерти
+  главного `ps` не нашёл ни одного процесса из `Obsidian.app`. Вежливый quit увёл всё дерево.
+- **Диалог согласия — один шаблон на всех пятерых**, снят скриншотами по каждому. Меняется
+  только имя цели. Клиент называется по **имени файла бандла** («Probe»), а не `CFBundleName`;
+  вторая строка — `NSAppleEventsUsageDescription` дословно. Шаблон обещает доступ к «documents
+  and data» даже у **Calculator**, у которого документов нет: формулировка системная и к
+  возможностям цели не адаптируется.
+- Блокировка потока на диалоге: 1.264–16.196 с по семи диалогам. Подтверждает §5 — держать на
+  этом потоке нечего, что нужно продукту.
+
+### Отклонения от пакета
+
+1. **`build-probe.sh`: строка `NSAppleEventsUsageDescription` переписана** с «…against
+   TextEdit» на нейтральную к подопытному. Формально это шире, чем «только расширение
+   allow-list», но строка **рендерится в диалоге дословно** и с пятью подопытными вводила бы
+   оператора в заблуждение ровно в тот момент, когда он этот диалог читает и записывает.
+2. **Испытание 3 на TextEdit прогнано дважды.** Первый `Allow` (noErr за 1.509 с) прошёл без
+   захвата текста диалога; сброшен и перезапущен ради скриншота. Записан здесь, а не выброшен.
+3. **Todoist прогнан пять раз вместо трёх** — два лишних прогона ушли на характеризацию
+   расхождения и на опыт с возвращением.
+4. **Строка `REFUSED: … found 0`** печатается новым guard-ом в середине наблюдения, уже после
+   смерти подопытного. Ожидаемый шум, наблюдение при этом отрабатывает корректно.
+5. **Ротация журнала:** запись TASK-002 вытеснена в архив, иначе `latest.md` ушёл бы далеко за
+   ориентир в 400 строк.
+
+### Найдено ревью (отдельным ходом, до чтения отчёта)
+
+Три числа в первой редакции отчёта и findings не сошлись с сырыми данными; исправлены, вывод
+карточки ни одним из них не задет:
+
+- `tccutil reset` — было «девять раз», на деле **17** (по одному на отправку);
+- диалогов согласия — было «семь» и список из восьми значений, на деле **11 поднято**, 10 с
+  сохранившимся транскриптом; в списке не хватало Calculator (17.986 с) и VLC (16.873 с);
+- findings §4 — «fourteen sends» против «twelve sends» двумя строками выше, в одном абзаце.
+  Верно **twelve**.
+
+Плюс два дефекта, оба записаны в отчёт:
+
+- **транскрипт первого `Allow` на TextEdit перезаписан** — перезапуск испытания 3 писался `tee`
+  в тот же файл. Числа (`noErr`, 1.509 с) живут только в прозе; сырой строки за ними нет;
+- **`findSubject()` возвращает nil и на «ноль запущено», и на «больше одного»**, а
+  `observeTermination` трактует nil как «исчезло». При двух запущенных подопытных наблюдение
+  отрапортовало бы ложную смерть на 0.000 с. Ни одно измерение не задето — в каждой отправке
+  стоит `found 0`, — но следующая карточка, взявшая пробник, должна это знать.
+
+### Транскрипт
+
+Полный сырой транскрипт всех испытаний. Файл поллера `ps` (180 строк одинаковых) не включён —
+его переходы видны в записи `16-todoist-divergence`.
+
+<details><summary>Семнадцать отправок quit, пять подопытных, дословно</summary>
+
+```
+── 01-textedit-negative-control
+★ NEGATIVE CONTROL — TextEdit — 2026-08-27T15:31:49Z
+
+── 02-textedit-trial1-reset-and-check
+★ TRIAL 1 (never asked) — TextEdit — 2026-08-27T15:32:29Z
+Successfully reset AppleEvents approval status for com.svvoff.terminator.probe
+subject: com.apple.TextEdit pid=8867
+status: -1744 (errAEEventWouldRequireUserConsent)
+call blocked for: 0.029 s
+
+── 03-textedit-trial1-quit
+★ TRIAL 1 (never asked) — TextEdit — отправка quit — 2026-08-27T15:32:40Z
+subject: com.apple.TextEdit pid=8867
+AESendMessage: 0 (noErr)
+AESendMessage blocked for: 0.006 s
+sysctl(KERN_PROC_PID): pid 8867 gone after 0.254 s
+NSWorkspace.runningApplications: gone after 0.262 s
+
+── 04-textedit-trial2-deny
+★ TRIAL 2 (denied) — TextEdit — 2026-08-27T15:33:23Z
+Successfully reset AppleEvents approval status for com.svvoff.terminator.probe
+subject: com.apple.TextEdit pid=24183
+status: -1744 (errAEEventWouldRequireUserConsent)
+call blocked for: 0.022 s
+subject: com.apple.TextEdit pid=24183
+status: -1743 (errAEEventNotPermitted)
+call blocked for: 14.062 s
+
+── 05-textedit-trial2-quit
+★ TRIAL 2 (denied) — TextEdit — подтверждение запрета и отправка quit — 2026-08-27T15:34:11Z
+subject: com.apple.TextEdit pid=24183
+status: -1743 (errAEEventNotPermitted)
+call blocked for: 0.024 s
+subject: com.apple.TextEdit pid=24183
+AESendMessage: 0 (noErr)
+AESendMessage blocked for: 0.005 s
+sysctl(KERN_PROC_PID): pid 24183 gone after 0.259 s
+NSWorkspace.runningApplications: gone after 0.275 s
+
+── 06-textedit-trial3-allow
+★ TRIAL 3 (granted) — TextEdit — ПЕРЕЗАПУСК ради захвата текста диалога — 2026-08-27T15:36:15Z
+Successfully reset AppleEvents approval status for com.svvoff.terminator.probe
+subject: com.apple.TextEdit pid=35981
+status: -1744 (errAEEventWouldRequireUserConsent)
+call blocked for: 0.024 s
+subject: com.apple.TextEdit pid=35981
+status: 0 (noErr)
+call blocked for: 16.196 s
+### нажата кнопка: Allow
+
+── 07-textedit-trial3-quit
+★ TRIAL 3 (granted) — TextEdit — подтверждение гранта и отправка quit — 2026-08-27T15:37:03Z
+subject: com.apple.TextEdit pid=35981
+status: 0 (noErr)
+call blocked for: 0.025 s
+subject: com.apple.TextEdit pid=35981
+AESendMessage: 0 (noErr)
+AESendMessage blocked for: 0.003 s
+sysctl(KERN_PROC_PID): pid 35981 gone after 0.255 s
+NSWorkspace.runningApplications: gone after 0.262 s
+
+── 08-calculator-control-and-trial1
+★ SUBJECT 2 — Calculator (com.apple.calculator) — 2026-08-27T15:37:36Z
+Successfully reset AppleEvents approval status for com.svvoff.terminator.probe
+subject: com.apple.calculator pid=56168
+status: -1744 (errAEEventWouldRequireUserConsent)
+call blocked for: 0.035 s
+subject: com.apple.calculator pid=56168
+AESendMessage: 0 (noErr)
+AESendMessage blocked for: 0.006 s
+sysctl(KERN_PROC_PID): pid 56168 gone after 0.258 s
+NSWorkspace.runningApplications: gone after 0.265 s
+
+── 09-calculator-trial2-deny
+★ SUBJECT 2 — Calculator — TRIAL 2 (denied) — 2026-08-27T15:38:43Z
+Successfully reset AppleEvents approval status for com.svvoff.terminator.probe
+subject: com.apple.calculator pid=69869
+status: -1744 (errAEEventWouldRequireUserConsent)
+call blocked for: 0.030 s
+subject: com.apple.calculator pid=69869
+status: -1743 (errAEEventNotPermitted)
+call blocked for: 17.986 s
+subject: com.apple.calculator pid=69869
+status: -1743 (errAEEventNotPermitted)
+call blocked for: 0.031 s
+subject: com.apple.calculator pid=69869
+AESendMessage: 0 (noErr)
+AESendMessage blocked for: 0.004 s
+sysctl(KERN_PROC_PID): pid 69869 gone after 0.258 s
+NSWorkspace.runningApplications: gone after 0.267 s
+### нажата кнопка: Don't Allow
+
+── 10-calculator-trial3-allow
+★ SUBJECT 2 — Calculator — TRIAL 3 (granted) — 2026-08-27T15:40:50Z
+Successfully reset AppleEvents approval status for com.svvoff.terminator.probe
+subject: com.apple.calculator pid=77629
+status: -1744 (errAEEventWouldRequireUserConsent)
+call blocked for: 0.023 s
+subject: com.apple.calculator pid=77629
+status: 0 (noErr)
+call blocked for: 11.968 s
+subject: com.apple.calculator pid=77629
+status: 0 (noErr)
+call blocked for: 0.021 s
+subject: com.apple.calculator pid=77629
+AESendMessage: 0 (noErr)
+AESendMessage blocked for: 0.004 s
+sysctl(KERN_PROC_PID): pid 77629 gone after 0.257 s
+NSWorkspace.runningApplications: gone after 0.269 s
+### нажата кнопка: Allow
+
+── 11-vlc-control-and-trial1
+★ SUBJECT 3 — VLC (org.videolan.vlc) — 2026-08-27T15:41:53Z
+Successfully reset AppleEvents approval status for com.svvoff.terminator.probe
+subject: org.videolan.vlc pid=88798
+status: -1744 (errAEEventWouldRequireUserConsent)
+call blocked for: 0.028 s
+subject: org.videolan.vlc pid=88798
+AESendMessage: 0 (noErr)
+AESendMessage blocked for: 0.006 s
+sysctl(KERN_PROC_PID): pid 88798 gone after 0.257 s
+NSWorkspace.runningApplications: gone after 0.264 s
+
+── 12-vlc-trial2-deny
+★ SUBJECT 3 — VLC — TRIAL 2 (denied) — 2026-08-27T15:43:39Z
+Successfully reset AppleEvents approval status for com.svvoff.terminator.probe
+subject: org.videolan.vlc pid=97464
+status: -1744 (errAEEventWouldRequireUserConsent)
+call blocked for: 0.030 s
+subject: org.videolan.vlc pid=97464
+status: -1743 (errAEEventNotPermitted)
+call blocked for: 16.873 s
+subject: org.videolan.vlc pid=97464
+status: -1743 (errAEEventNotPermitted)
+call blocked for: 0.032 s
+subject: org.videolan.vlc pid=97464
+AESendMessage: 0 (noErr)
+AESendMessage blocked for: 0.004 s
+sysctl(KERN_PROC_PID): pid 97464 gone after 0.257 s
+NSWorkspace.runningApplications: gone after 0.265 s
+### нажата кнопка: Don't Allow
+
+── 13-vlc-trial3-allow
+★ SUBJECT 3 — VLC — TRIAL 3 (granted) — 2026-08-27T15:45:04Z
+Successfully reset AppleEvents approval status for com.svvoff.terminator.probe
+subject: org.videolan.vlc pid=4696
+status: -1744 (errAEEventWouldRequireUserConsent)
+call blocked for: 0.425 s
+subject: org.videolan.vlc pid=4696
+status: 0 (noErr)
+call blocked for: 1.879 s
+subject: org.videolan.vlc pid=4696
+status: 0 (noErr)
+call blocked for: 0.028 s
+subject: org.videolan.vlc pid=4696
+AESendMessage: 0 (noErr)
+AESendMessage blocked for: 0.006 s
+sysctl(KERN_PROC_PID): pid 4696 gone after 0.260 s
+NSWorkspace.runningApplications: gone after 0.269 s
+
+── 14-todoist-control-and-trial1
+★ SUBJECT 4 — Todoist (com.todoist.mac.Todoist) — 2026-08-27T15:45:50Z
+Successfully reset AppleEvents approval status for com.svvoff.terminator.probe
+subject: com.todoist.mac.Todoist pid=27844
+status: -1744 (errAEEventWouldRequireUserConsent)
+call blocked for: 0.025 s
+subject: com.todoist.mac.Todoist pid=27844
+AESendMessage: 0 (noErr)
+AESendMessage blocked for: 0.005 s
+sysctl(KERN_PROC_PID): pid 27844 gone after 0.770 s
+NSWorkspace.runningApplications: STILL LISTED after 20s
+
+── 16-todoist-divergence
+★ SUBJECT 4 — Todoist — ХАРАКТЕРИЗАЦИЯ РАСХОЖДЕНИЯ (повтор trial 1 с тройным наблюдением)
+★ 2026-08-27 17:52:08 EET / 15:52:08Z
+Successfully reset AppleEvents approval status for com.svvoff.terminator.probe
+subject: com.todoist.mac.Todoist pid=33178
+status: -1744 (errAEEventWouldRequireUserConsent)
+call blocked for: 0.036 s
+subject: com.todoist.mac.Todoist pid=33178
+AESendMessage: 0 (noErr)
+AESendMessage blocked for: 0.007 s
+sysctl(KERN_PROC_PID): pid 33178 gone after 0.515 s
+NSWorkspace.runningApplications: gone after 0.522 s
+
+── 17-todoist-relaunch-test
+★ SUBJECT 4 — Todoist — ОПЫТ НА ВОЗВРАЩЕНИЕ (условия прогона 1: запуск оператором)
+★ 2026-08-27 18:16:12 EET
+запущен оператором в 18:17:47, pid=16749
+Successfully reset AppleEvents approval status for com.svvoff.terminator.probe
+subject: com.todoist.mac.Todoist pid=16749
+status: -1744 (errAEEventWouldRequireUserConsent)
+call blocked for: 0.564 s
+subject: com.todoist.mac.Todoist pid=16749
+AESendMessage: 0 (noErr)
+AESendMessage blocked for: 0.007 s
+18:17:48  ps: 16749 
+18:17:50  ps: —
+### итог через 120 с: не вернулся
+
+── 18-todoist-trial2-deny
+★ SUBJECT 4 — Todoist — TRIAL 2 (denied) — 2026-08-27T16:20:55Z
+Successfully reset AppleEvents approval status for com.svvoff.terminator.probe
+subject: com.todoist.mac.Todoist pid=60652
+status: -1744 (errAEEventWouldRequireUserConsent)
+call blocked for: 0.017 s
+subject: com.todoist.mac.Todoist pid=60652
+status: -1743 (errAEEventNotPermitted)
+call blocked for: 14.975 s
+subject: com.todoist.mac.Todoist pid=60652
+status: -1743 (errAEEventNotPermitted)
+call blocked for: 0.012 s
+subject: com.todoist.mac.Todoist pid=60652
+AESendMessage: 0 (noErr)
+AESendMessage blocked for: 0.004 s
+sysctl(KERN_PROC_PID): pid 60652 gone after 0.517 s
+NSWorkspace.runningApplications: gone after 2.047 s
+### нажата кнопка: Don't Allow
+
+── 19-todoist-trial3-allow
+★ SUBJECT 4 — Todoist — TRIAL 3 (granted) — 2026-08-27T16:25:27Z
+Successfully reset AppleEvents approval status for com.svvoff.terminator.probe
+subject: com.todoist.mac.Todoist pid=68261
+status: -1744 (errAEEventWouldRequireUserConsent)
+call blocked for: 0.019 s
+subject: com.todoist.mac.Todoist pid=68261
+status: 0 (noErr)
+call blocked for: 3.689 s
+subject: com.todoist.mac.Todoist pid=68261
+status: 0 (noErr)
+call blocked for: 0.011 s
+subject: com.todoist.mac.Todoist pid=68261
+AESendMessage: 0 (noErr)
+AESendMessage blocked for: 0.004 s
+sysctl(KERN_PROC_PID): pid 68261 gone after 0.517 s
+NSWorkspace.runningApplications: gone after 1.034 s
+
+── 20-obsidian-control-and-trial1
+★ SUBJECT 5 — Obsidian (md.obsidian) — 2026-08-27T16:26:08Z
+Successfully reset AppleEvents approval status for com.svvoff.terminator.probe
+subject: md.obsidian pid=87596
+status: -1744 (errAEEventWouldRequireUserConsent)
+call blocked for: 0.031 s
+subject: md.obsidian pid=87596
+AESendMessage: 0 (noErr)
+AESendMessage blocked for: 0.004 s
+sysctl(KERN_PROC_PID): pid 87596 gone after 0.262 s
+NSWorkspace.runningApplications: gone after 0.265 s
+
+── 21-obsidian-trial2-deny
+★ SUBJECT 5 — Obsidian — TRIAL 2 (denied) — 2026-08-27T16:28:54Z
+Successfully reset AppleEvents approval status for com.svvoff.terminator.probe
+subject: md.obsidian pid=3614
+status: -1744 (errAEEventWouldRequireUserConsent)
+call blocked for: 0.031 s
+subject: md.obsidian pid=3614
+status: -1743 (errAEEventNotPermitted)
+call blocked for: 11.672 s
+subject: md.obsidian pid=3614
+status: -1743 (errAEEventNotPermitted)
+call blocked for: 0.022 s
+subject: md.obsidian pid=3614
+AESendMessage: 0 (noErr)
+AESendMessage blocked for: 0.003 s
+sysctl(KERN_PROC_PID): pid 3614 gone after 0.257 s
+NSWorkspace.runningApplications: gone after 0.264 s
+### нажата кнопка: Don't Allow
+
+── 22-obsidian-trial3-allow
+★ SUBJECT 5 — Obsidian — TRIAL 3 (granted) — 2026-08-27T16:47:43Z
+Successfully reset AppleEvents approval status for com.svvoff.terminator.probe
+subject: md.obsidian pid=59558
+status: -1744 (errAEEventWouldRequireUserConsent)
+call blocked for: 0.029 s
+subject: md.obsidian pid=59558
+status: 0 (noErr)
+call blocked for: 1.264 s
+subject: md.obsidian pid=59558
+status: 0 (noErr)
+call blocked for: 0.017 s
+subject: md.obsidian pid=59558
+AESendMessage: 0 (noErr)
+AESendMessage blocked for: 0.004 s
+sysctl(KERN_PROC_PID): pid 59558 gone after 0.253 s
+NSWorkspace.runningApplications: gone after 0.260 s
+```
+</details>
