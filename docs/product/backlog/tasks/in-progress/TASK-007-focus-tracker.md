@@ -294,3 +294,101 @@ real clock.
   that file's own instruction.
 - `TASK-106` stays deferred. Nothing in this task promotes it.
 - Move this card to `tasks/done/YYYY-MM/` on acceptance.
+
+
+---
+
+## Amendment 1 · 2026-08-29 — one instruction is unimplementable, and six seams were left implicit
+
+Written by the orchestrator while assembling the packet, **before** delegation, after an
+adversarial read found that the card cannot be executed exactly as written. This removes no
+scope and adds none: it corrects one impossible instruction and names the seams the card needs
+but never granted.
+
+### The `.log` instruction cannot be carried out
+
+Scope says: "Focus log lines use the existing `.log` effect." They cannot.
+
+`Effect.log(LogEvent)` is rendered by exactly one type, `EngineLogRenderer.render(_:)`, which
+writes to `engineLog` — a `Logger` pinned to category **`engine`**
+(`ProcessLaunchTime.swift:16`). `LogEvent.Kind` is a **closed list of six** cases whose own
+doc comment says so, and `LogEvent` carries `bundleIdentifier: String` and `pid: pid_t` as
+**non-optional**. A pause, a day rollover and a flush have neither a bundle identifier nor a
+pid, so they do not fit the shape at all — and even if they did, they would land in category
+`engine` while this card's Logging section requires category **`focus`**.
+
+**Resolution.** The focus adapter writes its own logger:
+
+```swift
+nonisolated let focusLog = Logger(subsystem: TerminatorLog.subsystem, category: TerminatorLog.Category.focus)
+```
+
+following the four precedents already in the tree — `quitLog`, `engineLog`, `storeLog`,
+`loginItemLog`. The category constant already exists (`LoggingIdentity.swift:40`). The reducer
+emits **no** focus log events; `LogEvent`, `LogEvent.Kind` and `EngineLogRenderer` are not
+touched. **"No new `Effect` case" stands unchanged** — that half of the sentence was always
+right, and it is the half that matters.
+
+### Six seams the card needs but did not grant
+
+Each is an addition. None changes the semantics of deadlines, retries, adoption or the quit
+path.
+
+1. **`Now` gains a second field, and both of its construction sites may be edited.** The card
+   grants the field implicitly by describing it; it does not say who fills it. There are
+   exactly two places in the tree that build a `Now`: `WatchController.dispatch(_:)`
+   (`WatchController.swift:183`) and the test helper at `WatchEngineTests.swift:577`. Both are
+   in scope, for this purpose only. **The accrual field must have no default value** — a
+   defaulted field compiles, leaves all existing tests green, and freezes accrual at zero
+   forever in production, which is exactly the silent loss this card exists to prevent.
+2. **A third field, or an equivalent injection, carries the calendar's time zone.** The day key
+   is derived from `now.wall`, and the reducer may not read `Calendar.current` — the core reads
+   no environment (`Now.swift:5-7`), and `.current` would drag in the locale as well. Without an
+   injected zone, acceptance criterion 8 cannot be written without mutating process-global
+   state from a test.
+3. **The four session-removal sites may each take one insertion.** The ordering invariant is
+   stated in terms of the session table, and every path that empties it lives inside a handler
+   for one of the six existing inputs: `applyConfig` (`WatchEngine.swift:97`), `reconcile`
+   (`:122`), `apply(_:pid:at:)` (`:299`) and `dropSessions` (`:319`). Exactly one insertion is
+   allowed in each — the flush of the open span, immediately before the entry is removed.
+   Nothing else in those handlers changes. Note that `applyConfig` drops a session for **three**
+   reasons, not one: the rule is gone from the new config, the rule is disabled, or the deadline
+   does not compute.
+4. **`WatchEngine` gains one read-only accessor for the daily rollup, and `WatchController`
+   forwards it**, following `activeSessions` exactly.
+5. **`WatchController` gains `flushFocus()`**, and owns the flush cadence timer alongside
+   `tickTimer` and `sweepTimer`. The composition root's only change stays what the card already
+   says — `applicationWillTerminate(_:)` — and its body is one line: `controller.flushFocus()`.
+   Nothing is constructed in or handed to the root.
+6. **The doc comment on `EngineInput` may be corrected** where it says "ровно эти шесть входов";
+   it becomes ten. This and the `Now` doc comment are the only prose in TASK-004's files that
+   may be edited.
+
+### Reading the focus file is not "back-filling history"
+
+Persistence says what to write and never says what to read, and the non-goal "no back-filling
+history from any source" invites the reading that the file is write-only. That reading destroys
+the data set: the engine starts with empty state, so the first flush after **any** restart would
+overwrite every previously recorded day.
+
+**The flush merges by day.** A day held in memory replaces only itself; days already on disk and
+not in memory are carried through untouched. No file at start means an empty rollup and no file
+is created (the shape `ConfigStore.load()` already uses). Bytes that do not parse, or a
+`schemaVersion` from the future, put the focus store in the same **quarantine** the rules store
+uses: the file is left byte-for-byte alone and flushes refuse rather than overwrite.
+
+The non-goal means what it says — no reconstructing history from other sources — and has never
+meant "do not read your own file."
+
+**Retention: every recorded day is kept.** No truncation, no rotation, no age-based deletion in
+the MVP. A month is under 10 KB.
+
+### `context_refs` and the router
+
+The router lists TASK-007 under **DEC-008** — its review trigger is one week of collected focus
+data, which is precisely what this card produces — and the card's `context_refs` does not name
+it. The packet carries DEC-008. Conversely the card names **DEC-001**, which the router does not
+list against TASK-007; the citation is substantively right (focus must never feed a deadline)
+and the router row is left alone, recorded as an open documentation defect. This is the third
+card in a row with the DEC-008 gap.
+
