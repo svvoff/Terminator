@@ -16,6 +16,25 @@ Stages 2 (statistics UI), 3 (scheduling), 4 (distribution) are future.
 
 ## Current focus
 
+**TASK-004 is done** (accepted 2026-08-29), and with it the product's central mechanic. It
+watches, it counts, and it quits — on a live machine, not in tests. The engine is a pure
+synchronous reducer in `TerminatorCore`; detection is KVO on `runningApplications` plus a 30 s
+reconciliation sweep; the anchor is `p_starttime`; the deadline is an absolute `Date`
+re-evaluated on every tick and every sweep. 45 tests in 5 suites, and a manual checklist of
+eight items run by the author on his own machine.
+
+Two of those items are worth carrying forward. **Item 1 found a defect 44 unit tests missed** —
+a sweep landing between a process's death and its disappearance from `runningApplications` took
+the `launchDate` fallback, built a session key that did not match, and created a phantom expired
+session. The fallback is gone (card amendment 3), and findings §3 now records why a fallback
+there is not merely unreachable but wrong. **Item 8 returned a negative result**: timer
+throttling did not happen at all — the 5 s tick held full cadence on the fifth hour of the
+process, with the display dark for 45 minutes and no HID event for an hour. The overshoot was
+3.540 s where the tick grid predicted +3.74 s and the sweep grid +28.74 s, so the tick caught it
+and **the sweep — the construction findings §9 prescribes against throttling — was never
+loaded.** It is recorded in §9 as a negative result, with an explicit warning not to cite it as
+proof the sweep works.
+
 **TASK-009 is done** (accepted 2026-08-28, measured 2026-08-27), and it settled the question
 that was hanging over the whole expiry path: **quitting another application needs no Apple
 Events consent at all.** Five subjects spanning first-party/third-party, sandboxed/unsandboxed,
@@ -45,14 +64,21 @@ boolean anywhere (DEC-001). An unparseable file, a future `schemaVersion` or a r
 a model invariant puts the store in **quarantine**: bytes untouched, last good config kept in
 memory, `save` throws, and `ConfigStore.quarantine` exposes the reason for TASK-006 to render.
 The verbatim bytes and the shared `writeDurably(_:to:)` contract are in
-`docs/ai/execution-log/latest.md`.
+`docs/ai/execution-log/archive/2026-08.md` — the TASK-003 entry, moved there by the
+2026-08-28 rotation.
 
-**No task is currently selected. TASK-004 is next by the selection policy** — the only P0 left
-in `ready/`, and the card both remaining P1s wait on. It is `risk: high` in the zone that quits
-other people's applications, so it needs the author's explicit go-ahead, and its packet has to
-reckon with findings §4: its detection is KVO on `runningApplications`, the list that was
-measured lagging. TASK-008 (P2, `~/Library/LaunchAgents`) is the only other card whose
-dependencies are closed.
+**No task is currently selected.** TASK-004's acceptance unblocked both remaining P1s at once:
+TASK-006 (menu bar popover) and TASK-007 (focus tracker) each carry
+`depends_on: [TASK-003, TASK-004]`, and both are now closed. TASK-008 stays in `in-progress/` —
+its code is accepted, but its manual checklist needs a caller for the login-item service, and
+that caller is a popover row TASK-006 has to ship first.
+
+**Assembling TASK-006's packet was started and deliberately stopped.** The card cannot be
+executed as written: nothing exposes engine state to the view (`WatchController`'s public surface
+is six symbols, none of them a getter), nothing can tell the engine the config changed after the
+popover saves it, and the rule model has no removal API. The first two are the same defect class
+as TASK-008's — code that exists but cannot be reached. Details and the pending decision are in
+`docs/ai/execution-state.md`, "Открытые вопросы, гейтящие работу".
 
 ## Active constraints
 
