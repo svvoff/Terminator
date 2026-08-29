@@ -312,3 +312,153 @@ leaves no notification channel.
 This amendment removes scope. It does not add any, and it is not a licence to redesign the
 popover: whoever writes the packet reconciles the prose above against this section rather than
 rewriting the card.
+
+
+---
+
+## Amendment 2 · 2026-08-29 — the card cannot be executed as written; six named seams granted
+
+Written by the orchestrator while assembling the packet, **before** delegation. This is not a
+redesign: it records three defects that make the card unbuildable, grants the minimum that closes
+them, and finishes the reconciliation amendment 1 started.
+
+### What packet assembly found
+
+Three blockers, each checked by grep rather than by argument.
+
+1. **Nothing exposes engine state to the view.** `WatchEngine.activeSessions` is public
+   (`WatchEngine.swift:53`), but the engine lives in `private var engine`
+   (`WatchController.swift:25`) and the controller in `private let controller`
+   (`TerminatorApp.swift:67`). `WatchController`'s entire public surface is six symbols —
+   `tickInterval`, `sweepInterval`, `init`, `start()`, `reconcile()`, `stop()` — and not one is a
+   getter. The live countdown, which is this card's whole point, has no data source. The barrier
+   is `private`, not the module boundary: the view ships in the same target.
+
+2. **Nothing can tell the engine the config changed.** `.configChanged` is dispatched exactly
+   once, in `start()` (`WatchController.swift:63`); `dispatch(_:)` is private (`:124`) and
+   `reconcile()` sends `.reconcile`. After the popover calls `store.save(_:)` the engine would go
+   on counting against the old rules until the app restarts — which makes **manual checklist item
+   9 of this very card** ("disabling a rule stops its countdown") impossible to pass.
+
+3. **The rule model has no removal.** `RuleConfig` offers `set(_:)` and nothing else: no
+   `remove(bundleIdentifier:)`, no subscript setter. The card requires "Removing a rule removes it
+   from the store and from the list" and does not say how. Not a blocker — the public
+   `RuleConfig(_ rules: [Rule])` initialiser rebuilds the set — but left unsaid, the executor
+   would reach into `TerminatorCore`, which this card forbids.
+
+And one question the card never asked: **the red eyes must update while the popover is closed.**
+The card says the popover refreshes itself while open; that serves the list and does nothing for
+the menu bar label. There is no reactivity anywhere in the tree — zero matches for `@Observable`,
+`ObservableObject`, `@Published` and `Combine` across `Sources/`.
+
+### The six seams, and nothing beyond them
+
+Revised the same day, before delegation, after an adversarial read of the draft packet found
+that four of the original five were not enough. All six are **additions**. No existing logic in
+TASK-004's accepted code is edited: not the reducer, not the deadline arithmetic, not the
+cadences, not the quit path, not `perform`, not the construction of the object graph.
+
+| # | Seam | Where |
+|---|---|---|
+| 1 | `public var activeSessions: [ProcessSession]` — forwards `engine.activeSessions` | `WatchController` |
+| 2 | `public var config: RuleConfig` and `public var quarantine: ConfigLoadFailure?` — forward the store | `WatchController` |
+| 3 | `public func apply(_ config: RuleConfig) throws` — saves through the store and, **only on success**, dispatches `.configChanged(store.config)` **and then calls the existing public `reconcile()`** | `WatchController` |
+| 4 | `public var onStateChanged: (() -> Void)?` — invoked at the end of `dispatch(_:)`, after `perform` | `WatchController` |
+| 5 | `public func reloadFromDisk()` — `store.load()`, then `.configChanged(store.config)`, then `reconcile()` | `WatchController` |
+| 6 | `private let controller` becomes `let controller`; `AppDelegate` may additionally hold the popover's observable model and assign `onStateChanged` once in `applicationDidFinishLaunching` | `TerminatorApp.swift` |
+
+**Why seam 3 ends in `reconcile()`.** `applyConfig` walks only sessions that already exist
+(`WatchEngine.swift:89-104`): it recomputes their deadlines and drops the ones whose rule went
+away. It never adopts a process — `adopt` is reachable only from `.observed` and `.reconcile`.
+So enabling a rule, or adding one, for an application that is **already running** would produce
+no countdown until the next sweep, up to 30 s later, while disabling took effect instantly. That
+asymmetry is exactly what manual checklist items 8 and 9 measure. `reconcile()` is already
+public, so this costs no further surface — but leaving it unsaid would have cost a round.
+
+**Why seam 5 exists at all.** `store.load()` is called exactly once in the whole tree
+(`WatchController.swift:62`), and quarantine is only ever entered inside `load()`. Without a
+reload the popover cannot satisfy its own checklist item 14 — corrupt the file, reopen the
+popover, see the banner — because nothing re-reads the file. Worse than the checklist: while
+`quarantine` stays `nil` in memory, the next `apply(_:)` **succeeds and overwrites the user's
+hand edit**. The config file is a human-facing contract this product invites people to edit by
+hand, so silently clobbering it is a product defect, not a testing inconvenience. The popover
+calls `reloadFromDisk()` when it opens.
+
+Seam 5 reloads; it does not repair. The card's non-goal stands: a quarantined file is reported,
+never rewritten, migrated or fixed.
+
+**Why seam 3 is a method rather than an exposed `store`.** Handing the UI the `ConfigStore` would
+let it call `save(_:)` and forget to tell the engine — the defect above, re-introduced by
+convenience. One entry point makes the notification impossible to skip. It throws whatever the
+store throws, and on a quarantined store that refusal is what checklist item 14 observes.
+
+**Why seam 4 is a callback and not an observable.** It follows the pattern already in the tree:
+`RunningApplicationsObserver.start(onInsertions:onRemovals:)`. It carries no payload — the caller
+re-reads `activeSessions` — so it stays one line at one call site, and `dispatch(_:)` is the
+single funnel every input already passes through.
+
+**Why seam 6 grew.** Seam 4 hands out a slot; something has to fill it, and the slot must be
+filled once, at launch, by whoever owns the controller. That is `AppDelegate` and nothing else:
+the scene's `body` is recomputed and must not carry assignments, and a model created inside the
+popover's view would not exist while the popover is closed — which is precisely when the red eyes
+still have to be right. The grant is narrow: one stored property and one assignment in
+`applicationDidFinishLaunching`. The construction of store, engine, observer, sender and timers
+is untouched.
+
+**The red-eye predicate, which the card left open.** `activeSessions` returns sessions in all
+three phases, terminal `.refused` included, and a `.refused` session lives on until its process
+dies. A naive `!activeSessions.isEmpty` would therefore pin the eyes red for as long as a
+refusing application stays open. The predicate is: **red if any session is in `.counting` or
+`.awaitingQuit`; `.refused` alone never makes them red.** `.awaitingQuit` is included because the
+eyes are the only ambient channel DEC-004 leaves, and during that phase the engine is actively
+sending quits — dim eyes would report "idle" while the product is acting. `.refused` is excluded
+because it is terminal: nothing further will happen, and an indicator that never goes out is not
+an indicator. This is recorded here as a decision, not left to be improvised in a view.
+
+**The Quit Terminator control survives the placeholder.** It lives in `PlaceholderView.swift:66`
+today, and Terminator is `LSUIElement`: no dock tile, no application menu. If the replacing view
+drops it, the only way left to stop the product is a signal — which DEC-006 forbids designing
+for, since quitting Terminator is a normal, unresisted action. The control is **required** in the
+replacing view. The empty state's "nothing else" forbids onboarding, tips and illustrations; it
+does not forbid this.
+
+**Not granted, and still forbidden:** mutating the engine from outside; making `dispatch(_:)`
+public; the tick and sweep cadences; the deadline formula; making `Limit.seconds` public; any
+repair, migration or rewrite of a quarantined file; anything in `QuitSender`; `Package.swift`;
+and the `.appFirstObserved` effect, which has had no consumer since TASK-005 was deferred.
+
+### The launch-at-login row belongs to TASK-008
+
+TASK-008's amendment 1 settles it: "whichever runs second owns it. Do not build two." TASK-006
+runs first, so **this card must not add a launch-at-login row, toggle or wiring, and must not
+reference `LoginItemService`.** TASK-008 adds the row once this card lands, and its six-item
+checklist runs then.
+
+### Reconciliation left over from amendment 1
+
+Amendment 1 removed the consent surface without restating what depended on it.
+
+- Acceptance test `deniedAndRefusedRenderAsOneCondition` **is struck**: `denied` was TASK-005's
+  state and no longer exists. It is replaced by `refusedSessionIsDistinguishableFromCounting` —
+  the terminal `refused` phase TASK-004's retry ladder produces still has to be visible, and with
+  consent gone it is the only per-rule failure state besides quarantine.
+- "No `OSStatus` is interpreted in this card's code" **stands and hardens**: none is interpreted
+  here at all, mapped or otherwise.
+- The logging line loses its `consent` category; only `store` remains.
+- Manual checklist **item 6 is struck** entirely — it asserted the pre-warm prompt. **Item 4
+  keeps** its first half (adding a not-running app produces a rule) and loses the
+  `targetNotRunning` clause. **Item 11 keeps** its `refused` half and loses the `denied` and
+  deep-link halves.
+
+### `context_refs` was missing DEC-008
+
+The decisions router lists TASK-006 under DEC-008's `applies_to`; the card's `context_refs` did
+not. The packet carries DEC-008. This is the second card with this exact gap — amendment 2.1 to
+TASK-004 fixed the same one — which says something about how these cards were written rather than
+being a coincidence.
+
+The reverse mismatch is **not** resolved here: the card cites DEC-006 and the router does not list
+TASK-006 under it. DEC-006 does bind this surface — the Quit Terminator button and the
+friction-free disable toggle are its consequences — but editing a decision card's frontmatter is
+the user's call, not the orchestrator's alone. The packet carries DEC-006 as the card asks; the
+router row is untouched and recorded as an open documentation defect.

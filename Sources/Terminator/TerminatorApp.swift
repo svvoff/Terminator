@@ -20,23 +20,9 @@ struct TerminatorApp: App {
     /// перевычисляется, а наблюдение и таймеры должны быть заведены ровно один раз.
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
 
-    /// Какие глаза показывает глиф в меню-баре. Один булев бит, живущий во вью-слое.
-    ///
-    /// Владелец бита — **TASK-006**: там «идёт ли хоть один отсчёт» выводится из состояния
-    /// движка, и это состояние приезжает сюда вместо `@State`. Здесь оно существует только
-    /// ради **амендмента 2** к TASK-002 и Review trigger DEC-009: различимость красных глаз
-    /// от idle проверяется в самом меню-баре, а туда состояние попадает единственным путём —
-    /// через лейбл, то есть через `App`.
-    ///
-    /// За этим флагом нет ни движка, ни хранилища, ни наблюдателя, ни таймера, и он ничего
-    /// ни из чего не выводит: его переключает рукой кнопка в `PlaceholderView`. Композиционный
-    /// корень — по-прежнему TASK-004. В TASK-006 флаг уезжает вместе с плейсхолдером,
-    /// который его переключает; переизобретать его как проводку движка не нужно.
-    @State private var glyphEyes: MenuBarGlyphEyes = .idle
-
     var body: some Scene {
         MenuBarExtra {
-            PlaceholderView(glyphEyes: $glyphEyes)
+            PopoverView(model: appDelegate.popover)
         } label: {
             // Готовый Image(nsImage:) и ничего больше. Произвольное SwiftUI-вью
             // компилируется, но не соблюдается: лейбл принимает только Text, Image
@@ -46,7 +32,10 @@ struct TerminatorApp: App {
             // Прямая реактивная форма: состояние → готовый образ. Никаких .id(...),
             // пересозданий сцены и ручных инвалидаций — на реактивности этого лейбла
             // строится TASK-006, и если её нет, это измерение, а не повод обходить.
-            Image(nsImage: menuBarSkullImage(eyes: glyphEyes))
+            //
+            // Бит приезжает из модели, которая живёт в AppDelegate: глаза обязаны быть
+            // верны, когда поповер закрыт и его вью не существует.
+            Image(nsImage: menuBarSkullImage(eyes: appDelegate.popover.eyes))
         }
         .menuBarExtraStyle(.window)
     }
@@ -64,9 +53,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     /// Хранилище конфига (TASK-003) — первый узел графа: контроллер грузит его на старте и
     /// кормит движок входом `.configChanged`.
-    private let controller = WatchController(store: ConfigStore())
+    let controller = WatchController(store: ConfigStore())
+
+    /// Модель поповера (TASK-006). Держится **здесь**, а не во вью: состояние глаз глифа
+    /// обязано быть верным, когда поповер закрыт и его вью не существует.
+    private(set) lazy var popover = PopoverModel(controller: controller)
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        // Ровно одно присваивание и ровно один раз. Слот заполняется до `start()`, чтобы
+        // первый же вход движка — загруженный конфиг и стартовая сверка — уже дошёл до
+        // модели, а с ней до глаз глифа.
+        controller.onStateChanged = { [weak self] in self?.popover.refresh() }
         controller.start()
     }
 }
