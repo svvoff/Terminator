@@ -183,3 +183,54 @@ manual checklist and make sure both readings render as a normal state, not as a 
   `docs/product/recon/macos-findings.md` and say so in the execution log.
 - Move this card to `tasks/done/YYYY-MM/` on acceptance. `TASK-105` keeps ownership of the
   `SMAppService.mainApp` upgrade; do not open it here.
+
+
+---
+
+## Amendment 1 · 2026-08-28 — the manual checklist cannot run until TASK-006 exists
+
+Written by the orchestrator at review, after the code was accepted. This is a defect in **this
+card**, not in the work delivered against it.
+
+### What happened
+
+The code is done and reviewed: the plist generator, the status mapping, the write/remove/read
+service, and five unit tests covering acceptance criteria 1–4. What cannot happen is acceptance
+criterion 5 — the six-item manual checklist — because **nothing calls the service.**
+
+`enable(executableAt:)`, `disable()` and `status()` have no caller in the tree. The author has no
+way to turn the login item on, so sub-item 1 ("enable launch at login, confirm the plist
+appears") cannot be performed, and every sub-item after it depends on that one.
+
+### Why the card produced this
+
+"Executor allowed areas" grants **one popover row, and only if `TASK-006` is already done.** The
+composition root is not in scope for this card at all — it belongs to TASK-004. So the card
+assumed it would run *after* TASK-006 and never said so: its `depends_on` is `[TASK-002]`, which
+is correct for the code half and silent about the checklist half.
+
+The executor was right to stop and report rather than wire the service into a file this card does
+not own. Nothing here is theirs to fix.
+
+### What this changes
+
+- **The code half stands accepted.** It is not re-opened, re-reviewed or rewritten when the
+  checklist finally runs.
+- **This card stays in `tasks/in-progress/` until TASK-006 ships the popover row**, at which
+  point the row becomes the trigger and the six-item checklist is run in one sitting.
+- `depends_on` is **not** edited to add TASK-006. The dependency is real but partial — it binds
+  the checklist, not the code — and rewriting the field after the fact would misdescribe why the
+  card was selected. This amendment is the record.
+- The popover row itself: TASK-006 may add it, or this card may add it once TASK-006 has landed.
+  Whichever runs second owns it. Do not build two.
+
+### Settled at the same review
+
+`SMAppService.Status.notFound` (raw 3) maps to the domain `unknown(rawValue: 3)`, not to
+`notRegistered`. The executor raised this as a judgment call; the orchestrator confirms it.
+findings §12 measured the legacy path returning **`notRegistered` for a nonexistent path**, and
+names `.notFound` as the never-registered status of the *other* API, `SMAppService.mainApp`. On
+the legacy path `.notFound` has never been observed, so mapping it to a measured meaning would be
+inventing a measurement. It surfaces explicitly, carrying the raw number into the log, and
+checklist sub-item 5 will report what the system actually returns.
+
