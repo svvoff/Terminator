@@ -6,8 +6,8 @@ import os
 import TerminatorAppKit
 import TerminatorCore
 
-/// Логгер поповера. Категория ровно одна — `store`: всё, что поповер логирует, это состояние
-/// хранилища, которое он показывает. Новых категорий эта карточка не заводит.
+/// Логгер поповера. Категория `store`: всё, что поповер логирует про список правил, — это
+/// состояние хранилища, которое он показывает.
 ///
 /// Каждая интерполяция несёт `privacy: .public` — без исключений. Редакция происходит в момент
 /// записи и необратима (findings §14), а лог — единственный диагностический канал продукта:
@@ -15,6 +15,21 @@ import TerminatorCore
 private let popoverLog = Logger(
     subsystem: TerminatorLog.subsystem,
     category: TerminatorLog.Category.store
+)
+
+/// Логгер автозапуска. Категория `loginitem` — та же, в которую пишет `LoginItemService`:
+/// автор, разбирающий, почему не сработал автозапуск, читает одну категорию, а не две.
+///
+/// Пишутся отсюда ровно три строки, и все три — отказы, которых в логе иначе не будет:
+/// `Bundle.main.executableURL == nil` (до сервиса не доходит вовсе), бросок из `enable` и
+/// бросок из `disable`. Сервис логирует успех записи, успех удаления, каждое чтение статуса и
+/// отказ генератора plist — но не броски из `createDirectory`, `writeDurably` и `removeItem`.
+/// Молчаливый отказ записи не оставил бы ответа на вопрос «почему автозапуск не сработал»:
+/// `notice` живёт до следующего действия пользователя и исчезает вместе с поповером
+/// (DEC-004, findings §14).
+private let loginItemLog = Logger(
+    subsystem: TerminatorLog.subsystem,
+    category: TerminatorLog.Category.loginItem
 )
 
 /// Модель поповера: снимок состояния движка и хранилища плюс действия пользователя.
@@ -33,6 +48,11 @@ final class PopoverModel {
 
     private let controller: WatchController
 
+    /// Сервис автозапуска с каталогом по умолчанию. Живёт здесь, а не в композиционном
+    /// корне: состояния у него нет, кроме двух URL, а конструктор ничего не создаёт и
+    /// ничего не читает.
+    private let loginItem = LoginItemService()
+
     /// Снимок конфига, снятый с контроллера. Не источник истины — источник на диске.
     private(set) var config: RuleConfig = .empty
 
@@ -48,6 +68,23 @@ final class PopoverModel {
     /// Одна строка обратной связи на действие пользователя, живущая до следующего действия.
     /// Ни алерта, ни уведомления, ни HUD: поповер — единственный канал продукта.
     private(set) var notice: String?
+
+    /// Последнее прочитанное состояние автозапуска. `nil` означает «ещё не читали».
+    ///
+    /// Опционал здесь несёт смысл, а не осторожность: доменный случай по умолчанию
+    /// (`notRegistered`) нарисовал бы выключенный тумблер, не прочитав ничего, на первом
+    /// кадре каждого открытия. Статус читается **ровно дважды** — при открытии поповера и
+    /// сразу после переключения, — потому что каждое чтение пишет строку в лог, а вью
+    /// перерисовывается раз в секунду (findings §14).
+    private(set) var loginItemStatus: LoginItemStatus?
+
+    /// Регистрация записана, но система ещё не сообщает включённое состояние.
+    ///
+    /// Сообщит ли `statusForLegacyPlist` включённое состояние сразу после записи файла или
+    /// только после следующего входа — разведкой не установлено (findings §12), и **оба
+    /// прочтения нормальны**. Флаг ставится, только когда `enable` не бросил, а перечитанный
+    /// статус не стал `.enabled`, и снимается при любом следующем чтении. Это не отказ.
+    private(set) var loginItemRegistrationPending = false
 
     init(controller: WatchController) {
         self.controller = controller
@@ -82,10 +119,139 @@ final class PopoverModel {
     func popoverDidOpen() {
         controller.reloadFromDisk()
         refresh()
+        readLoginItemStatus()
         if let quarantine {
             let reason = String(describing: quarantine)
             popoverLog.notice("popover opened with quarantined store, edits will be refused: reason=\(reason, privacy: .public)")
         }
+    }
+
+    // MARK: - Автозапуск
+
+    /// Положение тумблера автозапуска: **есть ли на диске наша регистрация**.
+    ///
+    /// `disabledByUser` даёт **включённый** тумблер, и это не описка: наш plist на месте,
+    /// выключил пункт пользователь в System Settings. Тумблер отвечает на вопрос
+    /// «зарегистрировали ли мы себя», текст строки — на вопрос «что об этом думает система».
+    var launchAtLoginIsOn: Bool {
+        guard let loginItemStatus else { return false }
+        switch loginItemStatus {
+        case .enabled, .disabledByUser: return true
+        case .notRegistered, .unknown: return false
+        }
+    }
+
+    /// Интерактивен ли тумблер.
+    ///
+    /// Нет в двух состояниях: пока статус не прочитан и когда система вернула значение, о
+    /// котором разведка ничего не измерила. Предлагать переключатель в неизвестном состоянии
+    /// значило бы врать о том, что произойдёт по нажатию.
+    var launchAtLoginIsInteractive: Bool {
+        guard let loginItemStatus else { return false }
+        switch loginItemStatus {
+        case .enabled, .disabledByUser, .notRegistered: return true
+        case .unknown: return false
+        }
+    }
+
+    /// Во что превращается нажатие на тумблер.
+    private enum LaunchAtLoginGesture {
+        case register
+        case unregister
+        case ignore
+    }
+
+    /// Единственное место, где решается, что делает жест. Чистая функция статуса.
+    ///
+    /// Главное её свойство: из `.disabledByUser` она не возвращает `.register` ни при каком
+    /// значении `turningOn`. Перерегистрация после того, как пользователь выключил пункт в
+    /// System Settings, — ровно то поведение, которое запрещает DEC-006, и запрет выражен
+    /// здесь конструкцией, а не дисциплиной вызывающего: `enable(executableAt:)` пишет
+    /// безусловно и перекрыл бы файл, не глядя на состояние.
+    ///
+    /// Из `.disabledByUser` остаётся один законный жест — снять нашу регистрацию, — и он
+    /// ничем не отличается от того же жеста из `.enabled`.
+    private static func gesture(
+        for status: LoginItemStatus?,
+        turningOn: Bool
+    ) -> LaunchAtLoginGesture {
+        guard let status else { return .ignore }
+        switch status {
+        case .unknown:
+            return .ignore
+        case .notRegistered:
+            return turningOn ? .register : .ignore
+        case .enabled, .disabledByUser:
+            return turningOn ? .ignore : .unregister
+        }
+    }
+
+    /// Переключатель автозапуска.
+    ///
+    /// Отказ виден пользователю существующей строкой `notice` — там же, где остальные отказы
+    /// поповера: ни уведомления, ни алерта, ни HUD у продукта нет (DEC-004). Второго
+    /// пользовательского канала не заводится. В лог отказ уходит отдельно и по другой
+    /// причине: `notice` живёт до следующего действия, а лог остаётся.
+    ///
+    /// Строка обновляется **перечитанным** статусом, а не тем, что нажали: система — источник
+    /// истины и в успешном случае тоже.
+    func setLaunchAtLogin(_ isOn: Bool) {
+        switch Self.gesture(for: loginItemStatus, turningOn: isOn) {
+        case .ignore:
+            // Жест ничего не значит в текущем состоянии. Ни записи, ни удаления, ни чтения:
+            // `notice` тоже не трогается, иначе исчезла бы обратная связь прошлого действия.
+            return
+
+        case .register:
+            notice = nil
+            // Неупакованный случай: у голого исполняемого файла адреса нет, до сервиса он не
+            // доходит — поэтому логируется здесь. Силой разворачивать нечего.
+            guard let executable = Bundle.main.executableURL else {
+                notice = "Launch at login was not turned on: this build has no executable path."
+                loginItemLog.notice("login item not written: Bundle.main.executableURL is nil")
+                return
+            }
+            do {
+                try loginItem.enable(executableAt: executable)
+                readLoginItemStatus(registrationWritten: true)
+            } catch {
+                // Сервис логирует только отказ генератора plist: броски из `createDirectory`
+                // и `writeDurably` уходят вызывающему молча. `notice` живёт до следующего
+                // действия и исчезает вместе с поповером, а лог — единственный ответ на
+                // вопрос «почему автозапуск не сработал» (DEC-004, findings §14).
+                let reason = String(describing: error)
+                loginItemLog.notice("login item not written: executable=\(executable.path, privacy: .public) reason=\(reason, privacy: .public)")
+                notice = "Launch at login was not turned on. The login item was not written."
+                readLoginItemStatus()
+            }
+
+        case .unregister:
+            notice = nil
+            do {
+                try loginItem.disable()
+            } catch {
+                // `disable()` логирует успех и отсутствие файла; любой другой отказ
+                // `removeItem` уходит молча — по той же причине он записывается здесь.
+                let reason = String(describing: error)
+                loginItemLog.notice("login item not removed: path=\(self.loginItem.plistURL.path, privacy: .public) reason=\(reason, privacy: .public)")
+                notice = "Launch at login was not turned off. The login item file is still there."
+            }
+            readLoginItemStatus()
+        }
+    }
+
+    /// Единственное место во всём приложении, где зовётся `status()`. Зовут его отсюда
+    /// ровно двое: `popoverDidOpen()` и `setLaunchAtLogin(_:)`, то есть на одно открытие
+    /// поповера и на одно переключение приходится по одному чтению — и по одной строке в
+    /// логе (findings §14).
+    ///
+    /// `registrationWritten` ставится только на пути успешной записи: тогда статус, не
+    /// ставший `.enabled`, означает «вступит в силу при следующем входе», а не отказ. Любое
+    /// другое чтение флаг снимает.
+    private func readLoginItemStatus(registrationWritten: Bool = false) {
+        let status = loginItem.status()
+        loginItemStatus = status
+        loginItemRegistrationPending = registrationWritten && status != .enabled
     }
 
     // MARK: - Действия пользователя

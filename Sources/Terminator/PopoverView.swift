@@ -57,6 +57,8 @@ struct PopoverView: View {
 
             Divider()
 
+            LaunchAtLoginRow(model: model)
+
             HStack {
                 Button("Add App…") { model.addApplication() }
                 Spacer()
@@ -68,6 +70,66 @@ struct PopoverView: View {
             }
         }
         .padding(14)
+    }
+}
+
+/// Строка автозапуска: подпись, тумблер и текущий статус текстом. Текст присутствует во всех
+/// состояниях, а не только в проблемных.
+///
+/// Тумблер отвечает на вопрос «зарегистрировали ли мы себя», текст — на вопрос «что об этом
+/// думает система». Расходятся эти два ответа ровно в одном состоянии: пользователь выключил
+/// пункт в System Settings. Продукт это показывает и на этом останавливается — обход выбора
+/// пользователя запрещает DEC-006, и включить обратно можно там же, где выключили.
+///
+/// Статус здесь не читается: он приходит из модели, которая зовёт `status()` ровно дважды —
+/// при открытии поповера и после переключения. Чтение в `body` или в вычисляемом свойстве
+/// залило бы лог сотнями строк: содержимое перерисовывается раз в секунду (findings §14).
+private struct LaunchAtLoginRow: View {
+
+    let model: PopoverModel
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 3) {
+            Toggle(
+                "Launch at login",
+                isOn: Binding(
+                    get: { model.launchAtLoginIsOn },
+                    set: { model.setLaunchAtLogin($0) }
+                )
+            )
+            .toggleStyle(.switch)
+            .controlSize(.mini)
+            // Пока статус не прочитан и в неизвестном состоянии контрол неинтерактивен.
+            .disabled(!model.launchAtLoginIsInteractive)
+
+            Text(statusText)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    private var statusText: String {
+        guard let status = model.loginItemStatus else { return "status not read yet" }
+
+        // Сообщает ли система включённое состояние сразу после записи файла или только после
+        // следующего входа — разведкой не установлено (findings §12). Оба прочтения обязаны
+        // рендериться нормальным состоянием: это не отказ и не ошибка.
+        if model.loginItemRegistrationPending {
+            return "registered — takes effect at the next login"
+        }
+
+        switch status {
+        case .enabled:
+            return "on"
+        case .notRegistered:
+            return "off"
+        case .disabledByUser:
+            return "turned off in System Settings › General › Login Items — turn it back on there"
+        case .unknown(let rawValue):
+            // Сырое число показывается как есть: придумывать ему измеренный смысл нельзя.
+            return "unknown state (system status \(rawValue))"
+        }
     }
 }
 
