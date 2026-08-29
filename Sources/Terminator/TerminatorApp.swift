@@ -1,16 +1,24 @@
+import AppKit
 import SwiftUI
+import TerminatorCore
 import TerminatorAppKit
 
-/// Точка входа. Файл намеренно НЕ называется `main.swift`: SwiftPM трактует `main.swift`
-/// как top-level code и `@main` в нём не работает.
+/// Точка входа и **композиционный корень**. Файл намеренно НЕ называется `main.swift`:
+/// SwiftPM трактует `main.swift` как top-level code и `@main` в нём не работает.
 ///
-/// Композиционного корня здесь нет и быть не должно: ни `NSApplicationDelegateAdaptor`,
-/// ни делегата, ни модели, ни наблюдателя, ни таймера. Это TASK-004.
+/// Граф объектов строится один раз, при запуске, в `AppDelegate` ниже: хранилище конфига
+/// (TASK-003), движок, KVO-наблюдатель, два таймера, отправитель quit и рендерер лога.
+/// Больше им жить негде — движок это value type в ядре, а адаптеры инертны, пока их никто
+/// не держит.
 ///
 /// `setActivationPolicy(.accessory)` не вызывается: внутри бандла с `LSUIElement=true`
 /// политика уже `.accessory`, и вызов вернул бы `false` (findings §7).
 @main
 struct TerminatorApp: App {
+
+    /// Делегат приложения — держатель графа. Сцена SwiftUI не годится на эту роль: её тело
+    /// перевычисляется, а наблюдение и таймеры должны быть заведены ровно один раз.
+    @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
 
     /// Какие глаза показывает глиф в меню-баре. Один булев бит, живущий во вью-слое.
     ///
@@ -41,5 +49,24 @@ struct TerminatorApp: App {
             Image(nsImage: menuBarSkullImage(eyes: glyphEyes))
         }
         .menuBarExtraStyle(.window)
+    }
+}
+
+/// Владелец графа объектов и единственное место, где он собирается.
+///
+/// Здесь нет ни одного решения о поведении: делегат строит контроллер и запускает его.
+/// Что считать, когда закрывать и что писать в лог, решает редьюсер в `TerminatorCore`.
+///
+/// Сопротивления закрытию здесь нет и не будет: закрыть Terminator — штатное действие,
+/// которое останавливает всё, что он делает (DEC-006). Ни перезапуска, ни вспомогательного
+/// процесса, ни персистенции отсчётов.
+final class AppDelegate: NSObject, NSApplicationDelegate {
+
+    /// Хранилище конфига (TASK-003) — первый узел графа: контроллер грузит его на старте и
+    /// кормит движок входом `.configChanged`.
+    private let controller = WatchController(store: ConfigStore())
+
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        controller.start()
     }
 }

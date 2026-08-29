@@ -14,6 +14,7 @@ context_refs:
   - docs/product/decisions/active/DEC-003-no-cooldown.md
   - docs/product/decisions/active/DEC-004-no-warning.md
   - docs/product/decisions/active/DEC-006-anti-circumvention-non-goal.md
+  - docs/product/decisions/active/DEC-008-interruption-tax.md
 ---
 
 # TASK-004 — Watch engine: KVO + sweep, deadlines, swappable expiry action
@@ -539,3 +540,122 @@ justification — do not describe it in the packet as serving TASK-005.
 What must **not** happen, unchanged from the card above: no consumer is wired to it in this
 task. Previously that was because TASK-006 would do the wiring; now it is because there is
 nothing to wire it to.
+
+
+---
+
+## Amendment 2 · 2026-08-28 — three corrections found while assembling the packet
+
+Written by the orchestrator before delegation. Each item is a place where this card, drafted
+2026-08-26, has been overtaken by a measurement or by a decision router it did not match. None
+of them changes what the task builds.
+
+### 2.1 `context_refs` was missing DEC-008
+
+`DEC-008-interruption-tax.md` names `TASK-004` in its `applies_to`, and the "Documentation
+updates required" section below already tells the executor not to re-litigate it — but the
+frontmatter did not carry the file. **Added above.** Its binding consequence for this task is
+narrow and concrete: the expiry-action seam (DEC-003) must stay **load-bearing rather than
+decorative**, so that TASK-103 — cooldown or daily budget — is a new strategy behind an
+existing seam and not an engine rewrite. Its other consequence is a prohibition: **no
+mitigation is added that was not asked for** — no soft warning, no snooze, no "are you sure",
+no exemption for the frontmost app, no extra time for an app that was just quit.
+
+### 2.2 `kAENormalTimeout` does not exist
+
+Section "7. The quit seam" above prescribes
+`AESendMessage(kAENoReply | kAEDoNotPromptForUserConsent, kAENormalTimeout)`. **There is no
+such symbol in the SDK.** TASK-001 looked: the constants are `kAEDefaultTimeout` (-1) and
+`kNoTimeOut` (-2), `AEDataModel.h:431-432`. findings §4 and DEC-002 were corrected on
+2026-08-27 and 2026-08-28; this card was not. **Read that line as `kAEDefaultTimeout`.**
+
+### 2.3 Manual checklist item 3 describes an outcome that was measured not to happen
+
+Item 3 above ("TCC prompts") asks the operator to confirm, against an app with no Automation
+grant, that the send returns `-1743`, that `-1743` is terminal immediately, and that **a row
+appears in System Settings → Privacy & Security → Automation**. TASK-009 measured the opposite
+across five applications and three consent states: **seventeen sends, seventeen deaths,
+`noErr` every time**, including every send made while the pair was explicitly denied
+(findings §5). Consent is not consulted on the quit path, so no row appears and `-1743` never
+arrives to be terminal.
+
+**Item 3 is replaced by this, and the operator runs the replacement:** watch an app whose
+`(Terminator, target)` pair has never been asked for Automation consent, let its limit expire,
+and confirm from the log that the send returned `noErr`, that the app died, that **no consent
+dialog appeared**, and that **no new row appeared** in System Settings → Privacy & Security →
+Automation. This is a regression check on findings §5 against the product's own bundle
+identifier rather than the probe's — every one of the seventeen sends came from
+`com.svvoff.terminator.probe`, and `com.svvoff.terminator` has never sent one.
+
+Acceptance criterion 3, `permissionDeniedIsTerminalImmediately`, is **unchanged and still
+required**. Its justification changes, not its content: the handling is defensive against a
+case that has never been produced, exactly as DEC-002 now states it.
+
+
+---
+
+## Amendment 3 · 2026-08-28 — the `launchDate` fallback is removed
+
+Written by the orchestrator **after** the first manual-checklist trials, on evidence from the
+author's machine. This one contradicts section "4. Launch time" above, and the contradiction is
+deliberate: a measurement beat the card.
+
+### What the card says
+
+> If `p_starttime` is unavailable and `launchDate` exists, use `launchDate` and log the
+> degradation.
+
+### What was measured, 2026-08-28, checklist trial 1
+
+A watched TextEdit was quit at its deadline. It died 26 ms later. A reconciliation sweep landed
+inside the window between the process dying and its disappearance from
+`NSWorkspace.runningApplications` — the lag findings §4 measured at up to 19 s. In that window:
+
+- the app is **still in the snapshot**, because the workspace list lags the kernel;
+- `sysctl(KERN_PROC_PID)` already returns nothing, because the kernel is authoritative;
+- so the degradation path fires and takes `launchDate`, which differs from `p_starttime` by
+  **8 ms** (findings §3: the two agree within 0.4 s, typically ~10 ms).
+
+The session key is `(pid, p_starttime)`. 07:10:38.834Z ≠ 07:10:38.826Z, so the engine sees a
+**different process on the same pid**: it drops the real session with a false `app-exited`,
+adopts a phantom anchored on `launchDate`, finds it instantly overdue and emits a second
+`quit-requested`. One application closing produced **two `quit-requested` and three
+`app-exited`** in the log.
+
+Nothing wrong reached the outside world: the pre-send `p_starttime` re-verification caught the
+phantom and returned `.notRunning` (`quit not sent, process is gone`), so no second Apple Event
+was delivered. The last line of defence did the work the anchor should have done.
+
+It is a race, not a certainty — checklist trial 6 closed two instances with no phantom at all,
+because there the removal by absence-from-snapshot won. One phantom in three closes.
+
+### Why the fallback is not merely unreachable but wrong
+
+The card's degradation rule assumed `p_starttime` could be unavailable **for a live process**.
+findings §3 measured 90 of 90: for a live process it is always available. Therefore the only
+state in which the fallback can fire is one where the process is **already dead** — and there
+it does not degrade gracefully, it invents a live process out of a corpse.
+
+### What changes
+
+- `launchAnchor(of:)` **does not fall back to `launchDate`.** No `p_starttime` → no anchor →
+  `ObservedProcess.startTime` is nil, the process is not adopted, and it is re-evaluated on the
+  next sweep exactly as the card already requires for a missing start time (criterion 15).
+- `launchDate` **stays as the cross-check it always was**: where both exist and disagree by
+  more than 0.4 s, the disagreement is logged and `p_starttime` wins. That half of section 4 is
+  unchanged.
+- The "log the degradation" line goes with the fallback. There is no degradation left to log.
+- Acceptance criterion 15 is unchanged and now covers the whole story: a process with no
+  readable start time yields no deadline and no `.requestQuit`, and a later reconcile carrying
+  the start time starts the countdown.
+
+### New acceptance criterion
+
+25. `deadProcessStillListedDoesNotResurrectSession` — a session anchored on `p_starttime`, then
+    a `.reconcile` whose snapshot still contains that pid but with `startTime == nil` (the
+    workspace list has not caught up while the kernel has): the session is dropped with exactly
+    **one** `app-exited`, **no** new session is adopted, and **no** `.requestQuit` is emitted —
+    at that reconcile or at any later tick. This is the unit-test form of the trace above.
+
+Executor allowed areas are unchanged. This is a guard in one adapter function plus one test.
+

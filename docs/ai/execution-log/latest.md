@@ -28,585 +28,318 @@
 
 ## Ротация
 
-В `archive/2026-08.md` вытеснены две записи, обе по правилу 400 строк:
+В `archive/2026-08.md` вытеснены четыре записи, все по правилу 400 строк:
 
 - **TASK-001** — спайк подписи, согласия Apple Events и вежливого quit (ACCEPT 2026-08-27).
-  Выводы живут в findings §4, §5, §6.
+  Выводы живут в findings §4, §5, §6; там же **сырые транскрипты, на которые ссылается
+  раздел «Questions TASK-001 settled»** в findings.
 - **TASK-002** — SwiftPM-пакет, сборка бандла, подпись, череп в меню-баре (ACCEPT 2026-08-27).
   Выводы живут в findings §6 и §8, а форма сборки — в `current-state.md`.
+- **TASK-003** — модель правила и долговечное хранилище конфига (ACCEPT 2026-08-27).
+  Там же **канонические байты формата v1** и контракт `writeDurably(_:to:)`, на которые
+  ссылаются `current-state.md` и `execution-state.md`.
+- **TASK-009** — спайк согласия на quit на пяти приложениях (ACCEPT 2026-08-28).
+  Выводы живут в findings §4 и §5; в архиве — семнадцать транскриптов отправок.
 
-За дословными транскриптами обеих — в архив.
-
----
-
-## 2026-08-27 — TASK-003 — модель правила и долговечное хранилище конфига — ACCEPT
-
-**Что сделано.** Доменная модель (`Rule`, `Limit`, `RuleConfig`), версионированный
-человекочитаемый JSON-формат, общий хелпер долговечной записи `writeDurably(_:to:)` и
-`ConfigStore` с читаемым карантином и стартовой уборкой хвостов. Первый тестовый таргет в
-репозитории: 22 синхронных теста в четырёх сьютах, 0.09 с, без единого sleep. UI, движка,
-наблюдателей и focus-хранилища не появилось — таргеты `Terminator` и `TerminatorAppKit` не
-тронуты вовсе.
-
-**Валидация.** Профиль `[swift-build, swift-test]`, `manual-checklist` в карточке нет — человеку
-проверять нечего. Все прогоны перепроверены оркестратором своими командами, а не приняты по
-отчёту:
-
-| Команда | Исполнитель | Оркестратор |
-|---|---|---|
-| `swift build` | exit=0, 0 `warning:` | exit=0, 0 `warning:` |
-| `swift build -c release` | exit=0, 0 `warning:` | exit=0, 0 `warning:` |
-| `swift test` | 22 теста / 4 сьюта, 0.094 с | exit=0, 22 теста / 4 сьюта, 0.089 с |
-| `swift test -c release` | 22 теста / 4 сьюта, 0.087 с | exit=0, 22 теста / 4 сьюта, 0.107 с |
-| `scripts/check-forbidden.sh` | OK | OK |
-| `scripts/verify-docs.sh` | — | 0 ошибок, 0 предупреждений |
-
-Следов в реальной системе не осталось: `~/Library/Application Support/com.svvoff.terminator`
-не существует, `~/Library/LaunchAgents` не открывался, временных каталогов тестов в `TMPDIR`
-не осталось.
-
-Четыре запрета, которые грепом не ловятся, проверены чтением кода: `privacy: .public` стоит на
-всех восьми местах логирования без исключений; ни `Date()`, ни `SuspendingClock`, ни
-`ContinuousClock`, ни `async`, ни акторов в `Sources/TerminatorCore/` нет вовсе (грep пуст —
-единственное совпадение это слово `async` внутри доккомментария); кэширования pid здесь нет,
-потому что процессов здесь нет.
-
-**Решения и отклонения.** Шесть отклонений от пакета, все заявлены исполнителем, ни одно не
-скрыто. Приняты все шесть:
-
-1–2. **Байты pretty-print не совпали с эталоном пакета** — это зона 6, поэтому проверено
-отдельно и независимо (см. транскрипт ниже). Эталон пакета показывал `limit` в одну строку,
-`JSONEncoder` разворачивает вложенный объект на четыре; пустой `rules` он пишет как `{` +
-пустая строка + `}`, а не `{}`. **Ключи, значения, порядок и типы совпадают с утверждённым
-контрактом полностью** — расходится только расстановка переносов, и она принадлежит
-`JSONEncoder`. Свернуть её можно было бы только собственным сериализатором; цена — свой
-JSON-writer в ядре ради косметики файла, который и так правится руками. Принято как есть;
-**канонические байты — те, что в транскрипте ниже, а не эталон в пакете**.
-
-3. **Греп критерия 11 на `Bundle.main.bundleIdentifier` не пуст по всему дереву:** одно
-вхождение в `Sources/Terminator/PlaceholderView.swift:122`, от TASK-002. Это диагностическая
-строка, которая **показывает** факт findings §7 (`bundleIdentifier == nil` у голого
-SwiftPM-бинаря), а не выводит из него путь; лежит в таргете приложения, для исполнителя это
-запрещённая зона, и он её справедливо не тронул. Критерий 11 существует ради «путь не выводится
-из бандла», и это выполнено: в `Sources/TerminatorCore`, `Tests` и `Package.swift` греп пуст.
-Отдельной карточки не заводится — плейсхолдер уходит целиком в TASK-006.
-
-4. **`save(_ config:)` вместо `save()`** — форма с аргументом не требует публичного сеттера у
-`config`, который позволил бы памяти разъехаться с диском. Лучше, чем в пакете.
-
-5. **Две причины отказа лимита** (`.limitIsNotWholeMinutes` и `.limitMinutesOutOfRange`)
-вместо одной: в баннере TASK-006 это две разные жалобы. Второго case у `Limit` не появилось —
-запрет «не строить будущее» не нарушен.
-
-6. **`schemaVersion` меньше текущей отображается в `.undecodableBytes`**, а не в четвёртый case
-карантина: схемы v0 никогда не существовало, и заводить под неё отдельную причину — то самое
-построение будущего, которое карточка запрещает.
-
-Эскалаций нет. Ни DEC-001, ни DEC-005 не задеты; ни один факт findings не опровергнут, §14
-подтверждён прямым чтением лога (`log show` без `--info` вернул все строки без единого
-`<private>`).
-
-**Замечено при ревью, менять не просил.** Если `fsync` каталога упадёт уже после успешного
-`rename`, `writeDurably` бросит, и `save` не обновит конфиг в памяти — на диске будет новая
-версия, в памяти прежняя. Отказ здесь честнее успеха (незасинхроненный rename не гарантирован),
-а расхождение чинится следующей загрузкой. Записано, чтобы не выглядело сюрпризом.
-
-<details><summary>Транскрипт: реальные байты config.json, снятые оркестратором независимо</summary>
-
-Проверка сделана не пересказом отчёта: исходники ядра собраны отдельным бинарём мимо пакета
-(`swiftc -swift-version 6 Sources/TerminatorCore/*.swift scratch/main.swift`), который зовёт
-настоящий `ConfigStore.save` во временный каталог.
-
-```
-─── config.json (два правила) ───
-{
-  "rules" : {
-    "com.tinyspeck.slackmacgap" : {
-      "enabledAt" : "2026-08-27T13:00:00Z",
-      "limit" : {
-        "kind" : "constant",
-        "limitSeconds" : 600
-      }
-    },
-    "ru.keepcoder.Telegram" : {
-      "limit" : {
-        "kind" : "constant",
-        "limitSeconds" : 1800
-      }
-    }
-  },
-  "schemaVersion" : 1
-}
-─── config.json (пустой конфиг) ───
-{
-  "rules" : {
-
-  },
-  "schemaVersion" : 1
-}
-─── ConfigStore.defaultDataDirectory ───
-/Users/as.sorokin/Library/Application Support/com.svvoff.terminator
-```
-</details>
-
-### Формат на диске — контракт схемы v1
-
-Это запись, ради которой карточка требовала документирования: TASK-006, TASK-007 и TASK-008
-берут её отсюда, не читая исходники.
-
-- **Путь:** `~/Library/Application Support/com.svvoff.terminator/config.json`.
-  Публично: `ConfigStore.defaultDataDirectory`, `ConfigStore.configFileName`.
-  Каталог создаётся с промежуточными **при первой записи**, не при загрузке.
-- **Идентификатор:** `TerminatorIdentity.bundleIdentifier` — единственное вхождение литерала
-  `"com.svvoff.terminator"` в `Sources/`. Из него выведены подсистема логов, имя каталога и
-  запрет правила-на-себя. Второй константы не заводить.
-- **Корень:** `schemaVersion: Int` (сейчас `1`) и `rules` — **JSON-объект, ключ = bundle id**
-  (не массив). Два правила на одно приложение невыразимы по форме файла.
-- **Правило:** `limit` — тегированный объект `{ "kind": "constant", "limitSeconds": Int }`;
-  `enabledAt` — строка ISO 8601 **без долей секунды** (`"2026-08-27T13:00:00Z"`), либо ключ
-  отсутствует, либо `null` — и то, и другое значит «выключено». Отдельного булева флага нет
-  нигде (DEC-001).
-- **Диапазон `limitSeconds`:** кратные 60 от **60 до 28800** включительно, то есть 1…480 целых
-  минут. Константа диапазона — `Limit.allowedMinutes`; редактор TASK-006 читает её, а не
-  повторяет числа. Всё остальное роняет декод.
-- **Кодирование:** `.prettyPrinted` + `.sortedKeys`, даты `.iso8601`. Повторная запись одного
-  конфига побайтово идентична, и порядок ключей не зависит от порядка построения.
-- **Неизвестные ключи** внутри известной версии игнорируются: чужое поле-комментарий в ручной
-  правке не роняет конфиг в карантин.
-- **Хелпер записи:** `public func writeDurably(_ bytes: Data, to destination: URL) throws` —
-  temp `<имя>.sb-<uuid>` рядом с назначением (`O_WRONLY|O_CREAT|O_EXCL`, `0o644`) →
-  `fcntl(F_FULLFSYNC)` на том же дескрипторе → `rename(2)` → `fsync` каталога. **Каталог
-  назначения хелпер не создаёт** — это дело вызывающего. Ошибки — `DurableWriteError` с шагом
-  и `errno`.
-- **Уборка** хвостов (`.sb-`, `.tmp-`) ходит **только** по каталогу данных приложения и не
-  рекурсивно. Расширять её на каталог назначения хелпера нельзя: TASK-008 пишет в
-  `~/Library/LaunchAgents`, где лежат чужие файлы.
-- **Карантин:** `ConfigStore.quarantine: ConfigLoadFailure?` — read-only состояние с тремя
-  различимыми причинами (`.undecodableBytes(message:)`, `.rejectedRule(RuleRejected)`,
-  `.schemaVersionFromTheFuture(found:supported:)`). В карантине `save` бросает
-  `ConfigStoreError.quarantined` и не пишет ни байта; байты на диске остаются нетронутыми,
-  конфиг в памяти — прежним. Снимается только успешной перезагрузкой. TASK-006 обязана это
-  отрисовать: без баннера отказ полностью бессимптомен (DEC-004 не оставляет канала
-  уведомлений).
+За дословными транскриптами всех четырёх — в архив. Ротация 2026-08-28 увезла TASK-003 и
+TASK-009 разом: `latest.md` дорос до 612 строк при ориентире 400, и обе записи на девять
+десятых состоят из транскриптов, которые читаются один раз.
 
 ---
 
-## 2026-08-28 — TASK-009 — Спайк: нужно ли согласие Apple Events для quit на других приложениях — ACCEPT
+---
 
-(Измерения проведены 2026-08-27; сессия шла через полночь, приёмка 28-го — как и на TASK-001.)
+## 2026-08-29 — TASK-004 — движок наблюдения: KVO + сверка, дедлайны, сменная стратегия — **ACCEPT**
 
-**Маршрут: inline (оркестратор), совместно с оператором.** Карточка несёт только
-`manual-checklist`, и каждое испытание упирается в интерактивный диалог согласия и в живое
-приложение, которое надо увидеть закрывшимся. Делегировать это нельзя ни субагенту, ни
-воркфлоу: некому нажать `Allow` и некому увидеть смерть — исполнитель молча отчитался бы об
-успехе. Та же причина, по которой CLAUDE.md запрещает делегировать TASK-001.
+Принята 2026-08-29. Исполнение и семь пунктов чеклиста — 2026-08-28, пункт 8 — в ночь
+на 2026-08-29.
 
-**Машина:** macOS **26.6.2 (25G83)**, arm64. TASK-001 мерил на 26.5.2 (25F84), поэтому строка
-TextEdit здесь — не дубликат, а воспроизведение на другой версии ОС.
+- **Что сделано.** Центральная механика продукта. Чистый синхронный редьюсер `WatchEngine` в
+  `TerminatorCore` (Foundation, без AppKit, без async, без актора, без протокола `Clock`),
+  адаптеры в `TerminatorAppKit` (KVO по `runningApplications`, `sysctl` → `p_starttime`,
+  рукописный quit Apple Event, два таймера, рендерер лога), композиционный корень в
+  `TerminatorApp.swift`. Два раунда исполнения, каждый отревьюен отдельным ходом.
+- **Валидация.** 45 тестов в 5 сьютах (было 22), чистые сборки debug и release с нулём
+  `warning:`, `check-forbidden.sh` и `./build.sh` зелёные — всё перепрогнано оркестратором
+  заново, не принято по отчёту. Ручной чеклист — **восемь из восьми**, выполнены автором на
+  своей машине, транскрипты ниже.
+- **Решения и отклонения.** Один дефект найден чеклистом и исправлен раундом 2. Одно правило
+  карточки отменено измерением (амендмент 3). Четыре расхождения в документах найдены при
+  сборке пакета и починены до делегирования.
 
-**Что сделано.** Allow-list пробника TASK-001 расширен с одного идентификатора до пяти;
-параметра цели в командной строке не заведено (карточка называет его прямым основанием для
-отказа). Подопытный выбирается состоянием машины: ровно одно приложение из списка должно быть
-запущено, ноль и больше одного — отказ с перечислением увиденного. Пять подопытных, выбранных
-оператором, по три состояния согласия и отрицательному контролю каждый.
+### Два раунда, и почему их два
 
-### Ответ на вопрос карточки
+**Раунд 1** прошёл ревью целиком: 24 критерия приёмки, 44 теста, все негрепаемые правила
+перепроверены оркестратором заново — 55 интерполяций в лог-строках и ноль без
+`privacy: .public`, ни одного типа часов в пути дедлайна, единственный `Date()` в адаптере,
+кормящем редьюсер.
 
-**Согласия на пути quit нет вообще. Семнадцать отправок — семнадцать смертей.**
+Затем начался ручной чеклист, и **первое же испытание вскрыло дефект**, невидимый для всех 44
+тестов. Вердикт — REQUEST_CHANGES. Раунд 2 — одна правка в адаптере и один тест.
 
-| Подопытный | Сторона | Sandbox | Дистрибуция | Scriptable | не спрашивали | запрещено | разрешено |
-|---|---|---|---|---|---|---|---|
-| TextEdit | Apple | да | система | да | 0.254 с | 0.259 с | 0.255 с |
-| Calculator | Apple | да | система | **нет** | 0.258 с | 0.258 с | 0.257 с |
-| VLC | третья | **нет** | прямая | да | 0.257 с | 0.257 с | 0.260 с |
-| Todoist | третья | да | **App Store** | нет | 0.515–0.770 с | 0.517 с | 0.517 с |
-| Obsidian | третья | нет | прямая | нет | 0.262 с | 0.257 с | 0.253 с |
+### Дефект: фантомная сессия на мёртвом процессе
 
-`AESendMessage` вернул `noErr` за 0.003–0.007 с во всех семнадцати отправках, включая все
-отправки при **явно запрещённом** согласии. Отрицательный контроль на каждого подопытного —
-запущен, ничего не отправлено, жив через 20 с.
+Сверка, попавшая в окно между смертью процесса и его исчезновением из
+`NSWorkspace.runningApplications`, находила приложение ещё в списке, а `sysctl` уже молчащим.
+Срабатывал откат секции 4 карточки и брал `launchDate` — а он расходится с `p_starttime` на
+**8 мс**. Ключ сессии `(pid, p_starttime)` не сходился, и движок снимал настоящую сессию ложным
+`app-exited`, чтобы завести на её месте фантомную и сразу просроченную.
 
-Ни одно испытание не засчитано без сброса, проверенного на `-1744` непосредственно перед ним.
-Все запуски пробника — через `run-probe.sh` (LaunchServices); прямого exec из
-`Contents/MacOS/` нет нигде.
-
-### Что это значит для бэклога
-
-- **TASK-005 незачем существовать в текущем виде.** Пре-варминг, состояние согласия на
-  приложение и диплинк в System Settings решают задачу, которой нет: греть нечего и обходить
-  нечего. Это рекомендация от измерения — карточка не правилась.
-- **DEC-002** трактует `-1743` как немедленно терминальное на пути quit — случай не возникает.
-- **DEC-004** опасается диалога согласия в момент закрытия — не возникает.
-- «Only permission cost is Apple Events» в EPIC-02, DEC-005, DEC-006 завышает цену, которая
-  для ограничителя равна нулю.
-
-### Второе измерение: findings §4 опровергнут
-
-`NSWorkspace.runningApplications` **отстаёт от ядра**, и §4 с его «никогда не расходились
-более чем на 16 мс» верен только для TextEdit. У Todoist:
-
-| Испытание | `sysctl` | `NSWorkspace` | Расхождение |
-|---|---|---|---|
-| не спрашивали | 0.770 с | не увидел за 20 с | **> 19 с** |
-| не спрашивали, повтор | 0.515 с | 0.522 с | 7 мс |
-| запрещено | 0.517 с | 2.047 с | **1.53 с** |
-| разрешено | 0.517 с | 1.034 с | **0.52 с** |
-
-У остальных четырёх за двенадцать отправок расхождение не превысило 16 мс. Todoist умирает и
-вдвое медленнее: ~0.52 с против кластера 0.253–0.262 с. **Для TASK-004: смерть подтверждается
-на ядре, не на списке рабочего пространства.**
-
-### Наблюдение, оставленное необъяснённым
-
-В первом испытании Todoist новый процесс приложения появился **через 31 с** после quit.
-Оператор его не запускал (спрошено прямо и подтверждено). Агента автозапуска нет ни в
-`~/Library/LaunchAgents`, ни в `/Library/LaunchAgents`, ни в `launchctl list`.
-
-**Не воспроизвелось.** Два контролируемых повтора с поллером `ps` каждые 0.5 с — 90 с и 120 с —
-возврата не увидели вовсе. В том первом прогоне поллера не было, поэтому по имеющимся данным
-**нельзя** сказать, вернулось приложение внутри окна наблюдения или после него. Записано как
-предмет наблюдения для TASK-004, а не как свойство Todoist. Механизм не выяснялся: карточка
-это прямо запрещает, а угаданный по поведению механизм — не находка.
-
-### Побочные наблюдения
-
-- **Electron-хелперы не пережили главный процесс.** У Obsidian было 4 процесса; после смерти
-  главного `ps` не нашёл ни одного процесса из `Obsidian.app`. Вежливый quit увёл всё дерево.
-- **Диалог согласия — один шаблон на всех пятерых**, снят скриншотами по каждому. Меняется
-  только имя цели. Клиент называется по **имени файла бандла** («Probe»), а не `CFBundleName`;
-  вторая строка — `NSAppleEventsUsageDescription` дословно. Шаблон обещает доступ к «documents
-  and data» даже у **Calculator**, у которого документов нет: формулировка системная и к
-  возможностям цели не адаптируется.
-- Блокировка потока на диалоге: 1.264–16.196 с по семи диалогам. Подтверждает §5 — держать на
-  этом потоке нечего, что нужно продукту.
-
-### Отклонения от пакета
-
-1. **`build-probe.sh`: строка `NSAppleEventsUsageDescription` переписана** с «…against
-   TextEdit» на нейтральную к подопытному. Формально это шире, чем «только расширение
-   allow-list», но строка **рендерится в диалоге дословно** и с пятью подопытными вводила бы
-   оператора в заблуждение ровно в тот момент, когда он этот диалог читает и записывает.
-2. **Испытание 3 на TextEdit прогнано дважды.** Первый `Allow` (noErr за 1.509 с) прошёл без
-   захвата текста диалога; сброшен и перезапущен ради скриншота. Записан здесь, а не выброшен.
-3. **Todoist прогнан пять раз вместо трёх** — два лишних прогона ушли на характеризацию
-   расхождения и на опыт с возвращением.
-4. **Строка `REFUSED: … found 0`** печатается новым guard-ом в середине наблюдения, уже после
-   смерти подопытного. Ожидаемый шум, наблюдение при этом отрабатывает корректно.
-5. **Ротация журнала:** запись TASK-002 вытеснена в архив, иначе `latest.md` ушёл бы далеко за
-   ориентир в 400 строк.
-
-### Найдено ревью (отдельным ходом, до чтения отчёта)
-
-Три числа в первой редакции отчёта и findings не сошлись с сырыми данными; исправлены, вывод
-карточки ни одним из них не задет:
-
-- `tccutil reset` — было «девять раз», на деле **17** (по одному на отправку);
-- диалогов согласия — было «семь» и список из восьми значений, на деле **11 поднято**, 10 с
-  сохранившимся транскриптом; в списке не хватало Calculator (17.986 с) и VLC (16.873 с);
-- findings §4 — «fourteen sends» против «twelve sends» двумя строками выше, в одном абзаце.
-  Верно **twelve**.
-
-Плюс два дефекта, оба записаны в отчёт:
-
-- **транскрипт первого `Allow` на TextEdit перезаписан** — перезапуск испытания 3 писался `tee`
-  в тот же файл. Числа (`noErr`, 1.509 с) живут только в прозе; сырой строки за ними нет;
-- **`findSubject()` возвращает nil и на «ноль запущено», и на «больше одного»**, а
-  `observeTermination` трактует nil как «исчезло». При двух запущенных подопытных наблюдение
-  отрапортовало бы ложную смерть на 0.000 с. Ни одно измерение не задето — в каждой отправке
-  стоит `found 0`, — но следующая карточка, взявшая пробник, должна это знать.
-
-### Транскрипт
-
-Полный сырой транскрипт всех испытаний. Файл поллера `ps` (180 строк одинаковых) не включён —
-его переходы видны в записи `16-todoist-divergence`.
-
-<details><summary>Семнадцать отправок quit, пять подопытных, дословно</summary>
+Одно закрытие приложения дало **два `quit-requested` и три `app-exited`**:
 
 ```
-── 01-textedit-negative-control
-★ NEGATIVE CONTROL — TextEdit — 2026-08-27T15:31:49Z
-
-── 02-textedit-trial1-reset-and-check
-★ TRIAL 1 (never asked) — TextEdit — 2026-08-27T15:32:29Z
-Successfully reset AppleEvents approval status for com.svvoff.terminator.probe
-subject: com.apple.TextEdit pid=8867
-status: -1744 (errAEEventWouldRequireUserConsent)
-call blocked for: 0.029 s
-
-── 03-textedit-trial1-quit
-★ TRIAL 1 (never asked) — TextEdit — отправка quit — 2026-08-27T15:32:40Z
-subject: com.apple.TextEdit pid=8867
-AESendMessage: 0 (noErr)
-AESendMessage blocked for: 0.006 s
-sysctl(KERN_PROC_PID): pid 8867 gone after 0.254 s
-NSWorkspace.runningApplications: gone after 0.262 s
-
-── 04-textedit-trial2-deny
-★ TRIAL 2 (denied) — TextEdit — 2026-08-27T15:33:23Z
-Successfully reset AppleEvents approval status for com.svvoff.terminator.probe
-subject: com.apple.TextEdit pid=24183
-status: -1744 (errAEEventWouldRequireUserConsent)
-call blocked for: 0.022 s
-subject: com.apple.TextEdit pid=24183
-status: -1743 (errAEEventNotPermitted)
-call blocked for: 14.062 s
-
-── 05-textedit-trial2-quit
-★ TRIAL 2 (denied) — TextEdit — подтверждение запрета и отправка quit — 2026-08-27T15:34:11Z
-subject: com.apple.TextEdit pid=24183
-status: -1743 (errAEEventNotPermitted)
-call blocked for: 0.024 s
-subject: com.apple.TextEdit pid=24183
-AESendMessage: 0 (noErr)
-AESendMessage blocked for: 0.005 s
-sysctl(KERN_PROC_PID): pid 24183 gone after 0.259 s
-NSWorkspace.runningApplications: gone after 0.275 s
-
-── 06-textedit-trial3-allow
-★ TRIAL 3 (granted) — TextEdit — ПЕРЕЗАПУСК ради захвата текста диалога — 2026-08-27T15:36:15Z
-Successfully reset AppleEvents approval status for com.svvoff.terminator.probe
-subject: com.apple.TextEdit pid=35981
-status: -1744 (errAEEventWouldRequireUserConsent)
-call blocked for: 0.024 s
-subject: com.apple.TextEdit pid=35981
-status: 0 (noErr)
-call blocked for: 16.196 s
-### нажата кнопка: Allow
-
-── 07-textedit-trial3-quit
-★ TRIAL 3 (granted) — TextEdit — подтверждение гранта и отправка quit — 2026-08-27T15:37:03Z
-subject: com.apple.TextEdit pid=35981
-status: 0 (noErr)
-call blocked for: 0.025 s
-subject: com.apple.TextEdit pid=35981
-AESendMessage: 0 (noErr)
-AESendMessage blocked for: 0.003 s
-sysctl(KERN_PROC_PID): pid 35981 gone after 0.255 s
-NSWorkspace.runningApplications: gone after 0.262 s
-
-── 08-calculator-control-and-trial1
-★ SUBJECT 2 — Calculator (com.apple.calculator) — 2026-08-27T15:37:36Z
-Successfully reset AppleEvents approval status for com.svvoff.terminator.probe
-subject: com.apple.calculator pid=56168
-status: -1744 (errAEEventWouldRequireUserConsent)
-call blocked for: 0.035 s
-subject: com.apple.calculator pid=56168
-AESendMessage: 0 (noErr)
-AESendMessage blocked for: 0.006 s
-sysctl(KERN_PROC_PID): pid 56168 gone after 0.258 s
-NSWorkspace.runningApplications: gone after 0.265 s
-
-── 09-calculator-trial2-deny
-★ SUBJECT 2 — Calculator — TRIAL 2 (denied) — 2026-08-27T15:38:43Z
-Successfully reset AppleEvents approval status for com.svvoff.terminator.probe
-subject: com.apple.calculator pid=69869
-status: -1744 (errAEEventWouldRequireUserConsent)
-call blocked for: 0.030 s
-subject: com.apple.calculator pid=69869
-status: -1743 (errAEEventNotPermitted)
-call blocked for: 17.986 s
-subject: com.apple.calculator pid=69869
-status: -1743 (errAEEventNotPermitted)
-call blocked for: 0.031 s
-subject: com.apple.calculator pid=69869
-AESendMessage: 0 (noErr)
-AESendMessage blocked for: 0.004 s
-sysctl(KERN_PROC_PID): pid 69869 gone after 0.258 s
-NSWorkspace.runningApplications: gone after 0.267 s
-### нажата кнопка: Don't Allow
-
-── 10-calculator-trial3-allow
-★ SUBJECT 2 — Calculator — TRIAL 3 (granted) — 2026-08-27T15:40:50Z
-Successfully reset AppleEvents approval status for com.svvoff.terminator.probe
-subject: com.apple.calculator pid=77629
-status: -1744 (errAEEventWouldRequireUserConsent)
-call blocked for: 0.023 s
-subject: com.apple.calculator pid=77629
-status: 0 (noErr)
-call blocked for: 11.968 s
-subject: com.apple.calculator pid=77629
-status: 0 (noErr)
-call blocked for: 0.021 s
-subject: com.apple.calculator pid=77629
-AESendMessage: 0 (noErr)
-AESendMessage blocked for: 0.004 s
-sysctl(KERN_PROC_PID): pid 77629 gone after 0.257 s
-NSWorkspace.runningApplications: gone after 0.269 s
-### нажата кнопка: Allow
-
-── 11-vlc-control-and-trial1
-★ SUBJECT 3 — VLC (org.videolan.vlc) — 2026-08-27T15:41:53Z
-Successfully reset AppleEvents approval status for com.svvoff.terminator.probe
-subject: org.videolan.vlc pid=88798
-status: -1744 (errAEEventWouldRequireUserConsent)
-call blocked for: 0.028 s
-subject: org.videolan.vlc pid=88798
-AESendMessage: 0 (noErr)
-AESendMessage blocked for: 0.006 s
-sysctl(KERN_PROC_PID): pid 88798 gone after 0.257 s
-NSWorkspace.runningApplications: gone after 0.264 s
-
-── 12-vlc-trial2-deny
-★ SUBJECT 3 — VLC — TRIAL 2 (denied) — 2026-08-27T15:43:39Z
-Successfully reset AppleEvents approval status for com.svvoff.terminator.probe
-subject: org.videolan.vlc pid=97464
-status: -1744 (errAEEventWouldRequireUserConsent)
-call blocked for: 0.030 s
-subject: org.videolan.vlc pid=97464
-status: -1743 (errAEEventNotPermitted)
-call blocked for: 16.873 s
-subject: org.videolan.vlc pid=97464
-status: -1743 (errAEEventNotPermitted)
-call blocked for: 0.032 s
-subject: org.videolan.vlc pid=97464
-AESendMessage: 0 (noErr)
-AESendMessage blocked for: 0.004 s
-sysctl(KERN_PROC_PID): pid 97464 gone after 0.257 s
-NSWorkspace.runningApplications: gone after 0.265 s
-### нажата кнопка: Don't Allow
-
-── 13-vlc-trial3-allow
-★ SUBJECT 3 — VLC — TRIAL 3 (granted) — 2026-08-27T15:45:04Z
-Successfully reset AppleEvents approval status for com.svvoff.terminator.probe
-subject: org.videolan.vlc pid=4696
-status: -1744 (errAEEventWouldRequireUserConsent)
-call blocked for: 0.425 s
-subject: org.videolan.vlc pid=4696
-status: 0 (noErr)
-call blocked for: 1.879 s
-subject: org.videolan.vlc pid=4696
-status: 0 (noErr)
-call blocked for: 0.028 s
-subject: org.videolan.vlc pid=4696
-AESendMessage: 0 (noErr)
-AESendMessage blocked for: 0.006 s
-sysctl(KERN_PROC_PID): pid 4696 gone after 0.260 s
-NSWorkspace.runningApplications: gone after 0.269 s
-
-── 14-todoist-control-and-trial1
-★ SUBJECT 4 — Todoist (com.todoist.mac.Todoist) — 2026-08-27T15:45:50Z
-Successfully reset AppleEvents approval status for com.svvoff.terminator.probe
-subject: com.todoist.mac.Todoist pid=27844
-status: -1744 (errAEEventWouldRequireUserConsent)
-call blocked for: 0.025 s
-subject: com.todoist.mac.Todoist pid=27844
-AESendMessage: 0 (noErr)
-AESendMessage blocked for: 0.005 s
-sysctl(KERN_PROC_PID): pid 27844 gone after 0.770 s
-NSWorkspace.runningApplications: STILL LISTED after 20s
-
-── 16-todoist-divergence
-★ SUBJECT 4 — Todoist — ХАРАКТЕРИЗАЦИЯ РАСХОЖДЕНИЯ (повтор trial 1 с тройным наблюдением)
-★ 2026-08-27 17:52:08 EET / 15:52:08Z
-Successfully reset AppleEvents approval status for com.svvoff.terminator.probe
-subject: com.todoist.mac.Todoist pid=33178
-status: -1744 (errAEEventWouldRequireUserConsent)
-call blocked for: 0.036 s
-subject: com.todoist.mac.Todoist pid=33178
-AESendMessage: 0 (noErr)
-AESendMessage blocked for: 0.007 s
-sysctl(KERN_PROC_PID): pid 33178 gone after 0.515 s
-NSWorkspace.runningApplications: gone after 0.522 s
-
-── 17-todoist-relaunch-test
-★ SUBJECT 4 — Todoist — ОПЫТ НА ВОЗВРАЩЕНИЕ (условия прогона 1: запуск оператором)
-★ 2026-08-27 18:16:12 EET
-запущен оператором в 18:17:47, pid=16749
-Successfully reset AppleEvents approval status for com.svvoff.terminator.probe
-subject: com.todoist.mac.Todoist pid=16749
-status: -1744 (errAEEventWouldRequireUserConsent)
-call blocked for: 0.564 s
-subject: com.todoist.mac.Todoist pid=16749
-AESendMessage: 0 (noErr)
-AESendMessage blocked for: 0.007 s
-18:17:48  ps: 16749 
-18:17:50  ps: —
-### итог через 120 с: не вернулся
-
-── 18-todoist-trial2-deny
-★ SUBJECT 4 — Todoist — TRIAL 2 (denied) — 2026-08-27T16:20:55Z
-Successfully reset AppleEvents approval status for com.svvoff.terminator.probe
-subject: com.todoist.mac.Todoist pid=60652
-status: -1744 (errAEEventWouldRequireUserConsent)
-call blocked for: 0.017 s
-subject: com.todoist.mac.Todoist pid=60652
-status: -1743 (errAEEventNotPermitted)
-call blocked for: 14.975 s
-subject: com.todoist.mac.Todoist pid=60652
-status: -1743 (errAEEventNotPermitted)
-call blocked for: 0.012 s
-subject: com.todoist.mac.Todoist pid=60652
-AESendMessage: 0 (noErr)
-AESendMessage blocked for: 0.004 s
-sysctl(KERN_PROC_PID): pid 60652 gone after 0.517 s
-NSWorkspace.runningApplications: gone after 2.047 s
-### нажата кнопка: Don't Allow
-
-── 19-todoist-trial3-allow
-★ SUBJECT 4 — Todoist — TRIAL 3 (granted) — 2026-08-27T16:25:27Z
-Successfully reset AppleEvents approval status for com.svvoff.terminator.probe
-subject: com.todoist.mac.Todoist pid=68261
-status: -1744 (errAEEventWouldRequireUserConsent)
-call blocked for: 0.019 s
-subject: com.todoist.mac.Todoist pid=68261
-status: 0 (noErr)
-call blocked for: 3.689 s
-subject: com.todoist.mac.Todoist pid=68261
-status: 0 (noErr)
-call blocked for: 0.011 s
-subject: com.todoist.mac.Todoist pid=68261
-AESendMessage: 0 (noErr)
-AESendMessage blocked for: 0.004 s
-sysctl(KERN_PROC_PID): pid 68261 gone after 0.517 s
-NSWorkspace.runningApplications: gone after 1.034 s
-
-── 20-obsidian-control-and-trial1
-★ SUBJECT 5 — Obsidian (md.obsidian) — 2026-08-27T16:26:08Z
-Successfully reset AppleEvents approval status for com.svvoff.terminator.probe
-subject: md.obsidian pid=87596
-status: -1744 (errAEEventWouldRequireUserConsent)
-call blocked for: 0.031 s
-subject: md.obsidian pid=87596
-AESendMessage: 0 (noErr)
-AESendMessage blocked for: 0.004 s
-sysctl(KERN_PROC_PID): pid 87596 gone after 0.262 s
-NSWorkspace.runningApplications: gone after 0.265 s
-
-── 21-obsidian-trial2-deny
-★ SUBJECT 5 — Obsidian — TRIAL 2 (denied) — 2026-08-27T16:28:54Z
-Successfully reset AppleEvents approval status for com.svvoff.terminator.probe
-subject: md.obsidian pid=3614
-status: -1744 (errAEEventWouldRequireUserConsent)
-call blocked for: 0.031 s
-subject: md.obsidian pid=3614
-status: -1743 (errAEEventNotPermitted)
-call blocked for: 11.672 s
-subject: md.obsidian pid=3614
-status: -1743 (errAEEventNotPermitted)
-call blocked for: 0.022 s
-subject: md.obsidian pid=3614
-AESendMessage: 0 (noErr)
-AESendMessage blocked for: 0.003 s
-sysctl(KERN_PROC_PID): pid 3614 gone after 0.257 s
-NSWorkspace.runningApplications: gone after 0.264 s
-### нажата кнопка: Don't Allow
-
-── 22-obsidian-trial3-allow
-★ SUBJECT 5 — Obsidian — TRIAL 3 (granted) — 2026-08-27T16:47:43Z
-Successfully reset AppleEvents approval status for com.svvoff.terminator.probe
-subject: md.obsidian pid=59558
-status: -1744 (errAEEventWouldRequireUserConsent)
-call blocked for: 0.029 s
-subject: md.obsidian pid=59558
-status: 0 (noErr)
-call blocked for: 1.264 s
-subject: md.obsidian pid=59558
-status: 0 (noErr)
-call blocked for: 0.017 s
-subject: md.obsidian pid=59558
-AESendMessage: 0 (noErr)
-AESendMessage blocked for: 0.004 s
-sysctl(KERN_PROC_PID): pid 59558 gone after 0.253 s
-NSWorkspace.runningApplications: gone after 0.260 s
+09:11:41.628 engine: quit-requested  pid=7289 start=…38.834Z deadline=…38.834Z attempt=1/5
+09:11:41.629 quit:   quit accepted for delivery pid=7289 startTime=…38.834Z
+09:11:41.655 engine: launch time degraded to launchDate: pid=7289 launchDate=…38.826Z
+09:11:41.656 engine: app-exited      pid=7289 start=…38.834Z
+09:11:41.656 engine: countdown-started pid=7289 start=…38.826Z deadline=…38.826Z
+09:11:41.656 engine: quit-requested  pid=7289 start=…38.826Z attempt=1/5
+09:11:41.656 engine: app-exited      pid=7289 start=…38.826Z
+09:11:41.658 quit:   quit not sent, process is gone pid=7289 expectedStart=…38.826Z
 ```
-</details>
+
+Наружу неверного не ушло: перепроверка `p_starttime` по ядру непосредственно перед отправкой
+поймала фантом и вернула `.notRunning`. Последний рубеж сделал работу, которую должен был
+сделать якорь. Но лог — **весь** ответ на вопрос «почему оно закрылось» (DEC-004, findings §14),
+и канал, сообщающий два закрытия вместо одного, это дефект, а не косметика.
+
+Гонка, а не всегда: испытание 6 закрыло два экземпляра начисто. Один фантом на три закрытия.
+
+**Почему откат не просто недостижим, а вреден.** Правило деградации предполагало, что
+`p_starttime` может быть недоступен у живого процесса. findings §3 измерил 90 из 90: у живого
+он доступен всегда. Значит единственное состояние, в котором откат мог сработать, — процесс уже
+мёртв, и там он не деградирует мягко, а выдумывает живой процесс из трупа.
+
+**Правка (раунд 2):** `launchAnchor(of:)` больше не откатывается на `launchDate`. Нет
+`p_starttime` → nil → процесс не принимается и переоценивается на следующей сверке. `launchDate`
+остаётся сверкой, какой и был. Плюс критерий 25 — `deadProcessStillListedDoesNotResurrectSession`.
+
+Честная оговорка исполнителя, подтверждённая ревью: новый тест запирает контракт редьюсера, но
+правку адаптера не доказывает — `NSRunningApplication` в тесте не сконструировать. Доказал её
+повторный прогон пункта 1.
+
+### Четыре расхождения, найденные при сборке пакета
+
+Все до делегирования, три в карточке задачи (амендмент 2), одно в карточке решения.
+
+1. `context_refs` TASK-004 не содержал **DEC-008**, хотя `applies_to` решения называет TASK-004.
+   Пакет собирается по колонке роутера — это был пропуск.
+2. **`kAENormalTimeout`** в секции 7 карточки: символа нет в SDK. Код по карточке не собрался бы.
+3. **Пункт 3 чеклиста** требовал наблюдать `-1743` и новую строку в System Settings → Automation.
+   TASK-009 измерила, что ни того, ни другого не будет. Заменён регрессионной проверкой
+   findings §5 против продуктового идентификатора.
+4. **DEC-002 был поправлен наполовину** проходом 2026-08-28: «Consequences» и «Applies to»
+   продолжали утверждать, что путь quit требует согласия для каждого наблюдаемого приложения.
+   Дописано по разрешению пользователя, с пометкой в тексте дословно.
+
+### Транскрипты ручного чеклиста
+
+Все прогоны 2026-08-28, macOS 26.6.2 (25G83), подопытный TextEdit (плюс MacDroid в пункте 7),
+открывался оператором специально. Читается командой из карточки:
+
+```
+log show --predicate 'subsystem == "com.svvoff.terminator"' --style compact --last 1h
+```
+
+Оркестратор читал с добавленным `AND process == "Terminator"`: `swift test` пишет в ту же
+подсистему, и прогон исполнителя вытеснял продуктовые строки из буфера терминала.
+
+```
+2026-08-28 09:10:11.627 Df Terminator[4405:132dde9] [com.svvoff.terminator:store] config loaded: path=/Users/as.sorokin/Library/Application Support/com.svvoff.terminator/config.json rules=1 schemaVersion=1
+2026-08-28 09:10:38.900 Df Terminator[4405:132dde9] [com.svvoff.terminator:engine] app-detected bundleID=com.apple.TextEdit pid=7289 at=2026-08-28T07:10:38.897Z start=2026-08-28T07:10:38.834Z deadline=- attempt=- refusal=-
+2026-08-28 09:10:38.900 Df Terminator[4405:132dde9] [com.svvoff.terminator:engine] countdown-started bundleID=com.apple.TextEdit pid=7289 at=2026-08-28T07:10:38.897Z start=2026-08-28T07:10:38.834Z deadline=2026-08-28T07:11:38.834Z attempt=- refusal=-
+2026-08-28 09:11:41.628 Df Terminator[4405:132dde9] [com.svvoff.terminator:engine] quit-requested bundleID=com.apple.TextEdit pid=7289 at=2026-08-28T07:11:41.625Z start=2026-08-28T07:10:38.834Z deadline=2026-08-28T07:11:38.834Z attempt=1/5 refusal=-
+2026-08-28 09:11:41.629 Df Terminator[4405:1332018] [com.svvoff.terminator:quit] quit accepted for delivery: bundleID=com.apple.TextEdit pid=7289 startTime=2026-08-28T07:10:38.834Z deadline=2026-08-28T07:11:38.834Z
+2026-08-28 09:11:41.655 Df Terminator[4405:132dde9] [com.svvoff.terminator:engine] launch time degraded to launchDate: bundleID=com.apple.TextEdit pid=7289 launchDate=2026-08-28T07:10:38.826Z
+2026-08-28 09:11:41.656 Df Terminator[4405:132dde9] [com.svvoff.terminator:engine] app-exited bundleID=com.apple.TextEdit pid=7289 at=2026-08-28T07:11:41.653Z start=2026-08-28T07:10:38.834Z deadline=2026-08-28T07:11:38.834Z attempt=- refusal=-
+2026-08-28 09:11:41.656 Df Terminator[4405:132dde9] [com.svvoff.terminator:engine] countdown-started bundleID=com.apple.TextEdit pid=7289 at=2026-08-28T07:11:41.653Z start=2026-08-28T07:10:38.826Z deadline=2026-08-28T07:11:38.826Z attempt=- refusal=-
+2026-08-28 09:11:41.656 Df Terminator[4405:132dde9] [com.svvoff.terminator:engine] quit-requested bundleID=com.apple.TextEdit pid=7289 at=2026-08-28T07:11:41.653Z start=2026-08-28T07:10:38.826Z deadline=2026-08-28T07:11:38.826Z attempt=1/5 refusal=-
+2026-08-28 09:11:41.656 Df Terminator[4405:132dde9] [com.svvoff.terminator:engine] app-exited bundleID=com.apple.TextEdit pid=7289 at=2026-08-28T07:11:41.653Z start=2026-08-28T07:10:38.826Z deadline=2026-08-28T07:11:38.826Z attempt=- refusal=-
+2026-08-28 09:11:41.658 Df Terminator[4405:1334dad] [com.svvoff.terminator:quit] quit not sent, process is gone: bundleID=com.apple.TextEdit pid=7289 expectedStart=2026-08-28T07:10:38.826Z
+
+--- Испытание 6 (два экземпляра, open -n -a TextEdit ×2) — чисто, фантома нет ---
+2026-08-28 09:14:24.213 Df Terminator[4405:132dde9] [com.svvoff.terminator:engine] countdown-started bundleID=com.apple.TextEdit pid=35851 at=2026-08-28T07:14:24.210Z start=2026-08-28T07:14:24.132Z deadline=2026-08-28T07:15:24.132Z attempt=- refusal=-
+2026-08-28 09:14:24.255 Df Terminator[4405:132dde9] [com.svvoff.terminator:engine] countdown-started bundleID=com.apple.TextEdit pid=35853 at=2026-08-28T07:14:24.252Z start=2026-08-28T07:14:24.180Z deadline=2026-08-28T07:15:24.180Z attempt=- refusal=-
+2026-08-28 09:15:26.628 Df Terminator[4405:132dde9] [com.svvoff.terminator:engine] quit-requested bundleID=com.apple.TextEdit pid=35851 at=2026-08-28T07:15:26.624Z start=2026-08-28T07:14:24.132Z deadline=2026-08-28T07:15:24.132Z attempt=1/5 refusal=-
+2026-08-28 09:15:26.628 Df Terminator[4405:132dde9] [com.svvoff.terminator:engine] quit-requested bundleID=com.apple.TextEdit pid=35853 at=2026-08-28T07:15:26.624Z start=2026-08-28T07:14:24.180Z deadline=2026-08-28T07:15:24.180Z attempt=1/5 refusal=-
+2026-08-28 09:15:26.630 Df Terminator[4405:133fa86] [com.svvoff.terminator:quit] quit accepted for delivery: bundleID=com.apple.TextEdit pid=35851 startTime=2026-08-28T07:14:24.132Z deadline=2026-08-28T07:15:24.132Z
+2026-08-28 09:15:26.630 Df Terminator[4405:13432b2] [com.svvoff.terminator:quit] quit accepted for delivery: bundleID=com.apple.TextEdit pid=35853 startTime=2026-08-28T07:14:24.180Z deadline=2026-08-28T07:15:24.180Z
+2026-08-28 09:15:26.656 Df Terminator[4405:132dde9] [com.svvoff.terminator:engine] app-exited bundleID=com.apple.TextEdit pid=35853 at=2026-08-28T07:15:26.653Z start=2026-08-28T07:14:24.180Z deadline=2026-08-28T07:15:24.180Z attempt=- refusal=-
+2026-08-28 09:15:26.659 Df Terminator[4405:132dde9] [com.svvoff.terminator:engine] app-exited bundleID=com.apple.TextEdit pid=35851 at=2026-08-28T07:15:26.656Z start=2026-08-28T07:14:24.132Z deadline=2026-08-28T07:15:24.132Z attempt=- refusal=-
+
+--- Испытание 2 (несохранённый документ, лист сохранения) — пять отправок, терминал ---
+09:16:32.665 countdown-started pid=50919 start=07:16:32.598Z deadline=07:17:32.598Z
+09:17:36.624 quit-requested    pid=50919 attempt=1/5   (дедлайн +4.0 с)
+09:18:11.623 quit-retry        pid=50919 attempt=2/5   (+35.0 с — тик опередил срок на ~4 мс)
+09:18:41.623 quit-retry        pid=50919 attempt=3/5   (+30.0 с)
+09:19:11.647 quit-retry        pid=50919 attempt=4/5   (+30.0 с)
+09:19:41.649 quit-retry        pid=50919 attempt=5/5   (+30.0 с)
+09:20:16.623 quit-refused      pid=50919 attempt=5/5 refusal=attempts-exhausted  (+35.0 с)
+Шестой отправки нет. TextEdit остался жив с листом сохранения.
+
+--- Испытание 1, ПОВТОР на исправленной сборке (раунд 2) — фантома нет ---
+09:36:47.327 store: config loaded rules=1  (Terminator pid 98731, сборка после правки)
+09:37:06.377 app-detected      pid=1232 start=2026-08-28T07:37:06.296Z
+09:37:06.377 countdown-started pid=1232 deadline=2026-08-28T07:38:06.296Z
+09:38:07.329 quit-requested    pid=1232 attempt=1/5   (дедлайн +1.02 с, лимит +0.95 с)
+09:38:07.330 quit: quit accepted for delivery pid=1232
+09:38:07.358 app-exited        pid=1232               (через 29 мс после отправки)
+Ни строки launch time degraded, ни фантомного countdown-started, ни второго quit-requested.
+
+--- Пункт 3, наблюдения автора ---
+Диалог согласия не появился. Строка Terminator в System Settings → Privacy & Security →
+Automation не появилась. Первая в истории отправка от com.svvoff.terminator (все 17 отправок
+TASK-009 шли от com.svvoff.terminator.probe). findings §5 подтверждён на продуктовом клиенте.
+
+--- Испытание 5 (блокировка экрана) — таймер не затронут ---
+09:50:35.922 countdown-started pid=94944 start=2026-08-28T07:50:35.808Z deadline=2026-08-28T07:51:35.808Z
+09:51:37.330 quit-requested    pid=94944 attempt=1/5   (дедлайн +1.52 с, лимит +1.4 с)
+09:51:37.332 quit: quit accepted for delivery pid=94944
+09:51:37.373 app-exited        pid=94944
+Блокировка экрана в подсистеме продукта не видна; лог показывает штатные отсчёт и закрытие в
+том окне, когда экран был заблокирован. Быстрое переключение пользователей НЕ проверялось —
+нужна вторая учётная запись. Пункт закрыт по блокировке экрана.
+
+--- Побочное подтверждение §8: терминальная сессия не ретраится и снимается с процессом ---
+09:20:16.623 quit-refused pid=50919 attempt=5/5 refusal=attempts-exhausted
+   (девять минут: ~110 тиков и ~18 сверок, НИ ОДНОЙ строки quit)
+09:29:28.995 app-exited   pid=50919 start=2026-08-28T07:16:32.598Z
+Оператор отвечал на лист сохранения девять минут. Движок за это время не отправил ничего и снял
+сессию ровно одним app-exited, когда процесс умер. Наблюдение попало в лог случайно — при
+расширении окна чтения.
+
+--- Испытание 7 (accessory-приложение) — гард .regular работает end-to-end ---
+Конфиг на время испытания нёс ДВА правила по 60 с: com.apple.TextEdit (положительный контроль,
+.regular) и us.electronic.macdroid (подопытный, LSUIElement=true). MacDroid запущен оператором
+специально для испытания (pid 58716), enabledAt в прошлом — при сломанном гарде он был бы
+просрочен и закрыт на первой же сверке.
+
+Положительный контроль, TextEdit pid 79968, Terminator pid 77886:
+11:32:39.214 store: config loaded rules=2
+11:32:56.565 app-detected      pid=79968 start=2026-08-28T09:32:56.486Z
+11:32:56.565 countdown-started pid=79968 deadline=2026-08-28T09:33:56.486Z
+11:33:59.216 quit-requested    pid=79968 attempt=1/5   (дедлайн +2.72 с)
+11:33:59.218 quit: quit accepted for delivery pid=79968
+11:33:59.265 app-exited        pid=79968
+
+Подопытный, MacDroid:
+НОЛЬ строк с "macdroid" во всей подсистеме за 60 минут. MacDroid остался жив под тем же
+pid 58716 — не закрывался и не перезапускался.
+
+Второе независимое подтверждение: в 11:46:35 стартовал новый экземпляр Terminator (pid 72171),
+прочитал те же два правила и сделал бутстрап-сверку при живом MacDroid — снова ни строки.
+Конкурирующих экземпляров не было: в каждый момент жил ровно один Terminator.
+
+Вывод: правило по bundle id совпадало, приложение работало, движок был жив и демонстрируемо
+смотрел за списком (TextEdit найден и закрыт в том же прогоне). Тишина по MacDroid на этом фоне
+означает, что гард .regular работает целиком, включая перевод corePolicy() — половину, которую
+юнит-тестом не достать.
+
+После испытания конфиг возвращён к одному правилу (com.apple.TextEdit).
+
+--- Испытание 4, ПОПЫТКА 1 (лимит 60 с) — НЕ ЗАСЧИТАНА, не различает гипотезы ---
+12:18:16.489 countdown-started pid=89558 deadline=12:19:16.400 (местное)
+12:19:18     pmset: Sleep ('Maintenance Sleep')
+12:23:25     pmset: DarkWake
+12:23:25.662 quit-requested pid=89558 attempt=1/5
+12:23:25.949 app-exited
+Дедлайн истёк за 1.6 с ДО засыпания, то есть к моменту сна прошла 61 секунда при лимите 60.
+Приложение было просрочено и по стенным часам, и по накопленным тикам одновременно —
+реализация с запрещённым накоплением дельт повела бы себя так же. Сверка на пробуждении
+подтверждена, DEC-001 — нет. Оператор нажал Sleep сразу, но машина засыпала дольше.
+
+--- Испытание 4, ПОПЫТКА 2 (лимит 180 с) — ПРОШЛО, гипотезы различены ---
+12:38:18.108 store: config loaded rules=1   (Terminator pid 13418, лимит 180 с)
+12:38:38.416 app-detected      pid=15692 start=2026-08-28T10:38:38.340Z
+12:38:38.416 countdown-started pid=15692 deadline=2026-08-28T10:41:38.340Z (12:41:38.340 местное)
+12:38:47     pmset: Sleep — "Software Sleep pid=626" (команда оператора), на 9-й секунде отсчёта
+12:39:17     pmset: DarkWake (wifibt), 45 с
+12:40:02     pmset: Sleep ('Maintenance Sleep')
+12:41:38.340 ДЕДЛАЙН — машина спит
+12:47:06     pmset: DarkWake (USB2_plug)
+12:47:06.915 quit-requested pid=15692 attempt=1/5   — в ту же секунду, что DarkWake
+12:47:06.940 quit: quit accepted for delivery pid=15692
+12:47:06.976 app-exited pid=15692
+12:47:09     pmset: FullWake — то есть quit ушёл ДО полного пробуждения
+
+Условие различимости: засыпание 9 с < лимит 180 с < пробуждение 508 с — выполнено с запасом.
+Бодрствования до пробуждения набралось максимум 54 с из 180 (9 с + 45 с DarkWake). Реализация
+на suspending-часах видела бы >2 минут остатка и не закрыла бы ничего. Настоящая закрыла сразу:
+по стенным часам просрочка составила 5 мин 28.6 с, вся она пришлась на сон.
+DEC-001 подтверждён на живой машине.
+
+--- Испытание 8 (троттлинг) — ПРОШЛО, и оно различило тик и сверку ---
+Два прогона одного и того же с разными условиями. Terminator pid 86395 запущен 17:57:27.9,
+оба таймера заведены от этого момента: тик по сетке 5 с, сверка по сетке 30 с.
+
+КОНТРОЛЬ — активная машина, день, лимит 2100 с.
+17:18:35.397 countdown-started pid=66467 start=2026-08-28T15:18:35.123Z deadline=2026-08-28T15:53:35.123Z
+17:53:39.654 quit-requested    pid=66467 attempt=1/5   — дедлайн +4.520 с
+17:53:39.718 quit: quit accepted for delivery pid=66467
+17:53:40.177 app-exited        pid=66467               — смерть через 524 мс после отправки
+pmset: ни одного Sleep/Wake; powerd держал "Prevent sleep while display is on" 18 мин 18 с
+подряд — экран не гас ни разу. Это и есть условие контроля, а не заявление оператора.
+
+ОСНОВНОЙ ПРОГОН — простаивающая машина, ночь, лимит 3600 с.
+22:09:59.306 countdown-started pid=99440 start=2026-08-28T20:09:59.172Z deadline=2026-08-28T21:09:59.172Z
+22:24:58     pmset: WindowServer TimedOut UserIsActive 00:15:00 — последний HID-ввод 22:09:58
+22:25:09     pmset: "Display is turned off"; powerd отпустил "Prevent sleep while display is on"
+23:09:59.172 ДЕДЛАЙН — экран погашен 44 мин 50 с, HID-событий нет час
+23:10:02.712 quit-requested    pid=99440 attempt=1/5   — дедлайн +3.540 с
+23:10:02.723 quit: quit accepted for delivery pid=99440
+23:10:02.749 app-exited        pid=99440               — смерть через 37 мс после отправки
+Ни одного Sleep/Wake за окно: pmset sleep 0 выставлен и на сети, и на батарее.
+
+Различение тика и сверки. От заведения таймеров до дедлайна 18751.26 с.
+  следующий ТИК    по сетке  5 с  → дедлайн +3.74 с
+  следующая СВЕРКА по сетке 30 с  → дедлайн +28.74 с
+  наблюдалось                     → дедлайн +3.54 с
+Промах от тиковой сетки — 0.20 с на 3750 тиков; до сверочной — 25 с. Поймал ТИК.
+```
+
+### Измерения, которых не видно в юнит-тестах
+
+**Гранулярность тика видна в лестнице ретраев.** Пункт 2 дал разрывы 35, 30, 30, 30 секунд и
+терминал на +35 после пятой отправки. Отметка попытки ставится в момент тика, поэтому
+`lastAttemptAt + 30` попадает почти ровно на границу следующего тика, и жребий решает, успеет он
+или опоздает на 5 с: тик в 07:18:06.62 опередил срок на ~4 мс и не сработал. Карточка эту
+гранулярность оговаривает, но в юнит-тесте её не видно — там тики идут ровным шагом от нуля и
+все разрывы выходят ровно по 30 с.
+
+**Терминальная сессия проверена на живой машине.** Между `quit-refused` пункта 2 (09:20:16) и
+настоящим выходом TextEdit (09:29:28) прошло девять минут: оператор отвечал на лист сохранения.
+Движок за это время прогнал ~110 тиков и ~18 сверок, не отправил **ни одного** quit и снял
+сессию ровно одним `app-exited`. Наблюдение попало в лог случайно, при расширении окна чтения.
+
+**Первая попытка пункта 4 не засчитана ревью, и это поучительно.** Дедлайн истёк за 1.6 с до
+засыпания, то есть приложение было просрочено и по стенным часам, и по накопленным тикам
+одновременно. Реализация с запрещённым накоплением дельт повела бы себя так же — прогон не
+различал две гипотезы, ради различения которых пункт существует. Автор обоснованно счёл бы его
+пройденным. Повтор с лимитом 180 с дал условие различимости с запасом: засыпание на 9-й секунде,
+дедлайн во сне, пробуждение на 508-й, бодрствования максимум 54 с из 180.
+
+**Троттлинга на этой машине не случилось, и сверка осталась незаряженной.** Пункт 8 требует
+подтвердить, что просроченное приложение всё равно закрывается после получаса простоя. Оно
+закрылось — через 3.54 с. Но конструкция findings §9, ради которой пункт написан — сверка
+пересчитывает абсолютные дедлайны и потому не зависит от пунктуальности таймера, — этим прогоном
+**не проверена**: тик шёл в полную пятисекундную каденцию на пятом часу жизни процесса, после 44
+минут погашенного экрана и часа без единого HID-события. Ночной перелёт (3.54 с) вышел даже
+меньше дневного на активной машине (4.52 с): обе выборки из одного интервала [0, 5), и разница
+между ними — жребий, а не эффект. Результат отрицательный и записан как отрицательный. Сверка
+остаётся страховкой, которая ни разу не понадобилась; условие, при котором она понадобится, этим
+прогоном не найдено.
+
+### Открытые вопросы, не гейтящие работу
+
+1. **DEC-002 противоречит себе в пятом месте.** «Consequences» говорит, что политика ретраев
+   живёт со стратегией; «Applies to → TASK-004» отдаёт расписание пяти отправок движку. Карточка
+   задачи и критерии 2, 4 требуют второго — так и сделано. Правка карточки решения — отдельное
+   решение пользователя.
+2. **Смена лимита не сбрасывает фазу.** Удлинение лимита у сессии в `.awaitingQuit` двигает
+   дедлайн, но не возвращает фазу в `.counting`: лестница доигрывается и уходит в терминальный
+   `refused` навсегда для этого процесса. Карточка молчит, поэтому это не дефект реализации.
+   Обходной путь в одно действие: выключение правила снимает сессию целиком (критерий 17).
+3. **`assert` вырезается в релизе.** Сверка продублированного в ядре `-1743` с символом SDK
+   (`QuitSender.perform`) в релизной сборке не исполняется.
+4. **KVO-удаления с `processIdentifier == -1` наблюдатель пропускает**, и сессию снимает
+   ближайшая сверка — `app-exited` может опоздать до 30 с.

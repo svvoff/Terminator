@@ -61,6 +61,15 @@ activation policy, and the removed object already reports `isTerminated == true`
 > exit. Notifications are optional convenience at best. Never terminate a retry loop or
 > clean up state on `didTerminate`.
 
+**That verdict is about the launch/terminate notifications, and does not generalise to every
+`NSWorkspace` notification.** Measured 2026-08-28 (TASK-004, manual checklist item 4):
+`NSWorkspace.didWakeNotification` fired, and fired promptly. A watched app whose deadline had
+passed while the Mac slept was quit **0.9 s after the `DarkWake` entry in `pmset -g log`, and
+2 s before `FullWake`** — the wake-triggered reconciliation ran during dark wake, in an
+`LSUIElement` app that had been idle for eight minutes. Recorded because the sentence above,
+read too broadly, would justify removing the wake hook; on this measurement the wake hook is the
+thing that closes an app after sleep, and no timer would have.
+
 Because every detection path is edge-triggered, a missed edge means a permanently unwatched
 app with **zero symptoms** (there is no warning UI to be absent). Therefore the design also
 runs a periodic full reconciliation sweep — see `TASK-004`.
@@ -81,6 +90,24 @@ returned a value for **90 of 90** processes, needs no permission, and agrees wit
 > only. Falling back to `Date()` when both are unavailable would silently grant a fresh full
 > limit to exactly the login-launched apps this product exists to limit — refuse to start a
 > countdown instead.
+
+**An unreadable `p_starttime` means the process is dead — and `launchDate` outlives it.**
+Measured 2026-08-28 (TASK-004, manual checklist item 1). The 90-of-90 figure above is for
+**live** processes. In the window between a process dying and its disappearance from
+`NSWorkspace.runningApplications` — the lag §4 measured at up to 19 s — the two sources
+disagree about whether the process exists at all: `sysctl(KERN_PROC_PID)` already returns
+nothing, while `launchDate` is still readable off the stale `NSRunningApplication` object, and
+the value it returns differs from the `p_starttime` recorded at adoption by **8 ms**
+(07:10:38.826Z against 07:10:38.834Z on the observed run).
+
+> Consequence: **`launchDate` must never be used as the countdown anchor, not even as a
+> fallback.** The only state in which the fallback can fire is one where the process is already
+> dead, and there it does not degrade gracefully — it manufactures a live process out of a
+> corpse. Because process identity is the pair `(pid, p_starttime)`, an 8 ms difference is a
+> different process: on the observed run the engine dropped the real session with a false
+> exit event and adopted a phantom, already-overdue one, logging two quit requests and three
+> exits for a single application closing. A missing `p_starttime` is the answer «gone», and the
+> correct response is to report no start time at all.
 
 ## 4. Quitting another app: what `terminate()` really does
 
@@ -307,6 +334,20 @@ through LaunchServices (`open`) makes it its own responsible process, after whic
 `tccutil reset <bundle-id>` becomes observable. Anything exec'd directly out of
 `Contents/MacOS/` measures the terminal's permissions — which is what §7's dev loop does.
 
+### Measured 2026-08-28, macOS 26.6.2 (25G83), client `com.svvoff.terminator` — TASK-004
+
+Everything above was measured from `com.svvoff.terminator.probe`. Consent is per (client,
+target) pair, so none of it described the shipping client. The product's **first quit event ever
+sent** was observed under manual checklist item 3, against a TextEdit whose pair with
+`com.svvoff.terminator` had never been asked:
+
+- `AESendMessage` returned `noErr`; the target quit 29 ms later;
+- **no consent dialog appeared**, at countdown start or at kill time;
+- **no row for Terminator appeared** in System Settings → Privacy & Security → Automation.
+
+> Consequence: the result holds for the shipping client and not only for the throwaway probe.
+> One trial, one target — narrower than the seventeen sends above, and recorded as such.
+
 ## 6. Signing: unsigned cannot run at all, and signing must be last
 
 A completely unsigned arm64 `.app` cannot execute — direct exec exits 137, `open` fails with
@@ -488,6 +529,33 @@ Mac idle-sleeping while any watched app runs.
 > Consequence: take no activity assertion. Timer throttling is neutralised by re-evaluating
 > absolute deadlines on a sweep, not by fighting App Nap.
 
+### Measured 2026-08-28/29, macOS 26.6.2 (25G83), subject TextEdit — TASK-004
+
+**Timer throttling did not occur, so the sweep was never needed.** Two runs of the same setup,
+differing only in whether the machine was idle. Terminator is `LSUIElement`; its tick is a 5 s
+`Timer` on the main run loop and its sweep a 30 s one, both scheduled once at launch.
+
+| Run | Machine | Limit | Deadline overshoot |
+|---|---|---|---|
+| control | in use; display never slept, 18 min 18 s of `Prevent sleep while display is on` up to the deadline | 2100 s | **4.520 s** |
+| idle | display off for 44 min 50 s; no HID event for an hour | 3600 s | **3.540 s** |
+
+The idle run discriminates the two timers instead of merely passing. At the deadline the process
+had been up 18751.26 s, so on the grid the next tick fell at **+3.74 s** and the next sweep at
+**+28.74 s**; the observed quit was at **+3.54 s**. The tick caught it — 0.20 s off its grid
+after 3750 ticks, i.e. full 5 s cadence on the fifth hour of the process with the display dark.
+
+Neither run involved system sleep (`pmset sleep 0` on both AC and battery), so neither exercises
+the clock split at the top of this section.
+
+> The consequence above stands, and stands untested. Re-evaluating absolute deadlines is still
+> the right construction, but over these windows App Nap never delayed the timer, so the sweep
+> was a safety net carrying no load. The idle overshoot came out *smaller* than the busy one:
+> both are draws from [0, 5) and the difference is chance, not an effect. **A condition under
+> which the sweep is actually needed has not been found on this machine yet** — do not cite this
+> measurement as proof that the sweep works.
+
+
 ## 10. Identity: bundle id, and a set of processes
 
 Exact `bundleIdentifier` string equality is the correct match key. Electron/Chromium helpers
@@ -618,7 +686,8 @@ Because this product shows no warning before closing an app, the log is the *ent
 ## Questions TASK-001 settled
 
 Answered on the author's machine on 2026-08-26, macOS 26.5.2 (25F84), arm64. Raw transcripts
-are in `docs/ai/execution-log/latest.md`.
+are in `docs/ai/execution-log/archive/2026-08.md` — the TASK-001 entry, moved there by the
+first log rotation.
 
 1. **Does a locally self-signed certificate preserve TCC Automation grants across rebuilds?**
    Yes — and so does ad-hoc, which was the control. The grant follows the bundle identifier,

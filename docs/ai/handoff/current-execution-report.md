@@ -2,218 +2,287 @@
 
 ## Задача
 
-TASK-009 — Spike: нужно ли согласие Apple Events для quit на приложениях, отличных от TextEdit?
+**TASK-004 — Watch engine. Раунд 2** (после REQUEST_CHANGES по итогам ручного чеклиста).
 
-**Маршрут: inline (оркестратор), совместно с оператором.** Не делегировалось. Карточка несёт
-только `manual-checklist`, каждое испытание упирается в интерактивный диалог согласия и в живое
-приложение, которое надо увидеть закрывшимся. Субагент не увидел бы диалог, не нажал бы в нём
-кнопку и отчитался бы об успехе. Ревью выполняется **отдельным ходом**, как для чужого диффа.
+Задание — амендмент 3 карточки `docs/product/backlog/tasks/in-progress/TASK-004-watch-engine.md`.
+Секция «4. Launch time» той же карточки читалась как заведомо отменённая амендментом.
 
 ## Кратко
 
-Пять подопытных, выбранных оператором, покрывают все четыре оси карточки. По три состояния
-согласия и отрицательному контролю на каждого. **Семнадцать отправок quit — семнадцать
-смертей**, включая все отправки при явно запрещённом согласии.
+Из `launchAnchor(of:)` удалён откат на `launchDate`: нет `p_starttime` — нет якоря, возвращается
+nil. Вместе с откатом ушла лог-строка `launch time degraded to launchDate`. Половина функции про
+сверку `launchDate` не менялась. Добавлен один юнит-тест редьюсера — критерий 25.
+`WatchEngine` и остальные девять файлов ядра и адаптеров не тронуты.
 
-Ответ на вопрос карточки: **результат TASK-001 обобщается, согласия на пути quit нет вовсе.**
-Оговорка «Scope: one target» в findings §5 заменена измеренным обобщением.
-
-Побочно опровергнут findings §4: `NSWorkspace.runningApplications` отстаёт от ядра — у Todoist
-до 19+ секунд, тогда как §4 утверждал «никогда более 16 мс». Карточка прямо разрешает править
-§4, если подопытный ему противоречит.
+Тестов было 44, стало 45.
 
 ## Изменённые файлы
 
 | Файл | Что изменено |
 |---|---|
-| `probes/task-001/main.swift` | allow-list расширен с одной константы до списка из пяти; `findSubject()` требует **ровно одного** запущенного приложения из списка и отказывает с перечислением увиденного; `withSubjectTarget` переподтверждает идентичность по списку; `printStatus` печатает все пятерых; `usage()` печатает список; шапка файла приведена в соответствие с тем, что TASK-009 сделала пробник своей зависимостью |
-| `probes/task-001/build-probe.sh` | строка `NSAppleEventsUsageDescription` переписана на нейтральную к подопытному (см. отклонение 1) |
-| `docs/product/recon/macos-findings.md` | **§5** — оговорка про одного подопытного заменена блоком измерения на пятерых; **§4** — «16 мс» ограничено TextEdit, добавлен блок измерения расхождения |
-| `docs/ai/execution-log/latest.md` | запись TASK-009 с полным транскриптом; ротация TASK-002 в архив по правилу 400 строк |
-| `docs/ai/execution-log/archive/2026-08.md` | принята вытесненная запись TASK-002 |
+| `Sources/TerminatorAppKit/ProcessLaunchTime.swift` | `launchAnchor(of:)`: трёхстрочное тело `guard` заменено на `return nil`; удалена строка `engineLog.notice("launch time degraded to launchDate: …")`; док-комментарий переписан с трёх исходов на два и объясняет, почему откат не просто недостижим, а вреден |
+| `Tests/TerminatorCoreTests/WatchEngineTests.swift` | добавлен `deadProcessStillListedDoesNotResurrectSession()` (критерий 25); в док-комментарии `@Suite` диапазон «пункты 1–22» стал «пункты 1–22 и 25» |
 
-**Продуктовое дерево не тронуто вовсе.** `Package.swift`, `Sources/`, `Tests/`, `build.sh`,
-`Packaging/` — без изменений.
+Больше ничего в дереве не менялось — ни исходников, ни тестов, ни `Package.swift`, ни доков,
+ни `build.sh`, ни скриптов.
 
-## Подопытные
+### Одна правка вне буквы «добавление одного теста» — раскрываю явно
 
-Выбраны оператором 2026-08-27. Паспорт снят до испытаний: sandbox — по
-`com.apple.security.app-sandbox` в `codesign -d --entitlements -`, дистрибуция — по наличию
-`Contents/_MASReceipt/receipt`, скриптуемость — по `NSAppleScriptEnabled`.
+В `WatchEngineTests.swift` изменена **одна строка комментария**: заголовок сюиты говорил
+«Критерии приёмки TASK-004, пункты 1–22», а файл теперь покрывает ещё и 25-й. Ни один
+существующий тест не тронут: 22 из 23 тел `@Test` побайтово прежние. Если оркестратор считает
+это выходом за скоуп — строка откатывается одним движением, но тогда заголовок файла остаётся
+неверным.
 
-| # | Приложение | bundle id | Сторона | Sandbox | Дистрибуция | Документная | Scriptable |
-|---|---|---|---|---|---|---|---|
-| 1 | TextEdit | `com.apple.TextEdit` | Apple | да | система | да | да |
-| 2 | Calculator | `com.apple.calculator` | Apple | да | система | нет | **нет** |
-| 3 | VLC | `org.videolan.vlc` | третья | **нет** | прямая | да | да |
-| 4 | Todoist | `com.todoist.mac.Todoist` | третья | да | **App Store** | нет | нет |
-| 5 | Obsidian | `md.obsidian` | третья | нет | прямая | да | нет |
+## Изменения поведения
 
-Проверка по `.sdef` в `Contents/Resources` дала бы ложный ноль на TextEdit и Preview:
-современные системные приложения там определение не кладут. Поэтому ось скриптуемости
-определена по `NSAppleScriptEnabled`.
+**Было.** `p_starttime` недоступен → берётся `launchDate` (если он есть), пишется
+`launch time degraded to launchDate`, процесс принимается движком с якорем `launchDate`.
 
-## Доказательства
+**Стало.** `p_starttime` недоступен → `launchAnchor` возвращает nil → `ObservedProcess.startTime`
+равен nil → движок процесс **не принимает** и переоценивает на следующей сверке (это уже
+существующее поведение редьюсера, критерий 15, тест
+`processWithoutLaunchTimeDoesNotStartCountdown`).
 
-Дата и машина: **2026-08-27, macOS 26.6.2 (25G83)**, arm64.
+Что это чинит по трассе из пакета: в окне «процесс мёртв, но ещё в снимке
+`NSWorkspace.runningApplications`» (findings §4 — отставание до 19 с) откат подставлял
+`launchDate`, отличающийся от `p_starttime` на 8 мс. Ключ сессии `(pid, p_starttime)` расходился,
+и движок снимал настоящую сессию ложным `app-exited`, чтобы завести фантомную и сразу
+просроченную. Теперь в этом окне сверка делает ровно одно: снимает сессию, потому что пары
+`(pid, startTime)` в снимке нет, и ничего не заводит взамен.
 
-Полный сырой транскрипт — `docs/ai/execution-log/latest.md`, запись TASK-009, под свёрткой.
+`WatchEngine` не менялся сознательно: на данных, которые ему давал адаптер, он вёл себя
+правильно. Дефект был в адаптере, сообщавшем время старта мёртвого процесса.
 
-### Результат по подопытным
+## Доказательства валидации
 
-| Подопытный | Отрицательный контроль | не спрашивали (`-1744`) | запрещено (`-1743`) | разрешено (`noErr`) |
-|---|---|---|---|---|
-| TextEdit | жив +21 с | `noErr` 0.006 с → мёртв 0.254 с | `noErr` 0.005 с → 0.259 с | `noErr` 0.003 с → 0.255 с |
-| Calculator | жив +20 с | `noErr` 0.006 с → 0.258 с | `noErr` 0.004 с → 0.258 с | `noErr` 0.004 с → 0.257 с |
-| VLC | жив +20 с | `noErr` 0.006 с → 0.257 с | `noErr` 0.004 с → 0.257 с | `noErr` 0.006 с → 0.260 с |
-| Todoist | жив +20 с | `noErr` 0.005–0.007 с → 0.515–0.770 с (×3) | `noErr` 0.004 с → 0.517 с | `noErr` 0.004 с → 0.517 с |
-| Obsidian | жив +20 с | `noErr` 0.004 с → 0.262 с | `noErr` 0.003 с → 0.257 с | `noErr` 0.004 с → 0.253 с |
+Перед прогоном `.build` удалён целиком, чтобы вывод компилятора был настоящим, а не кэшем.
 
-### Сборка пробника
+| Команда | Результат | Вывод |
+|---|---|---|
+| `swift build` | EXIT=0, `warning:` — 0 строк | см. ниже |
+| `swift build -c release` | EXIT=0, `warning:` — 0 строк | см. ниже |
+| `swift test` | EXIT=0, **45 тестов**, `warning:` — 0 строк | см. ниже |
+| `swift test -c release` | EXIT=0, **45 тестов**, `warning:` — 0 строк | см. ниже |
+| `scripts/check-forbidden.sh` | EXIT=0 | `OK:    запрещённых конструкций не найдено` |
+| `./build.sh` | EXIT=0, терминальный шаг `codesign --verify --strict` молчит | см. ниже |
+
+### `swift build`
 
 ```
-$ ./probes/task-001/build-probe.sh
-codesign --verify --strict --verbose=2: valid on disk
-                                        satisfies its Designated Requirement
-Identifier=com.svvoff.terminator.probe
-designated => identifier "com.svvoff.terminator.probe" and certificate leaf = H"74d5…8f24"
+$ rm -rf .build && swift build
+Building for debugging...
+[0/8] Write sources
+[3/8] Write Terminator-entitlement.plist
+[4/8] Write swift-version--58304C5D6DBC2206.txt
+[6/23] Compiling TerminatorCore ObservedProcess.swift
+...
+[27/31] Compiling TerminatorAppKit ProcessLaunchTime.swift
+[28/31] Emitting module TerminatorAppKit
+[29/34] Emitting module Terminator
+[30/34] Compiling Terminator TerminatorApp.swift
+[31/34] Compiling Terminator PlaceholderView.swift
+[32/34] Linking Terminator
+[33/34] Applying Terminator
+Build complete! (9.31s)
+EXIT=0
+grep -c 'warning:' → 0
 ```
 
-Подпись — `Terminator Dev`, как и в TASK-001. Сертификат
-`Apple Development: Vladimir Voytsekhovskiy (63PZ483Z52)` не упоминался, не использовался и не
-трогался.
+### `swift build -c release`
 
-### Диалоги согласия
+```
+$ swift build -c release
+Building for production...
+[0/6] Write sources
+[3/6] Write swift-version--58304C5D6DBC2206.txt
+[5/7] Compiling TerminatorCore ConfigFormat.swift
+[6/8] Compiling TerminatorAppKit EngineLogRenderer.swift
+[7/9] Compiling Terminator PlaceholderView.swift
+[8/9] Linking Terminator
+Build complete! (6.78s)
+EXIT=0
+grep -c 'warning:' → 0
+```
 
-**Одиннадцать** диалогов поднято. Текст снят скриншотом по каждому из пяти подопытных и
-записан дословно; нажатая кнопка зафиксирована по каждому диалогу. Шаблон один на всех:
+### `swift test`
 
-> **"Probe" wants access to control "<цель>". Allowing control will provide access to documents
-> and data in "<цель>", and to perform actions within that app.**
->
-> This throwaway probe measures how macOS handles Apple Events consent. It is not a product.
->
-> `Don't Allow`  `Allow`
+```
+$ swift test
+Test Suite 'All tests' passed at 2026-08-28 09:22:18.514.
+◇ Test deadProcessStillListedDoesNotResurrectSession() started.
+✔ Test deadProcessStillListedDoesNotResurrectSession() passed after 0.029 seconds.
+✔ Suite "Доменная модель правила" passed after 0.030 seconds.
+✔ Suite "Движок наблюдения" passed after 0.030 seconds.
+✔ Suite "Формат конфига на диске" passed after 0.062 seconds.
+✔ Suite "Хранилище конфига: карантин, уборка, путь" passed after 0.062 seconds.
+✔ Suite "Долговечная запись" passed after 0.074 seconds.
+✔ Test run with 45 tests in 5 suites passed after 0.074 seconds.
+EXIT=0
+grep -c 'warning:' → 0
+```
 
-Блокировка потока на диалоге, все сохранившиеся замеры: 1.264 / 1.879 / 3.689 / 11.672 /
-11.968 / 14.062 / 14.975 / 16.196 / 16.873 / 17.986 с — от 1.3 до 18 секунд, то есть время
-целиком определяется человеком. Одиннадцатый диалог (первый `Allow` на TextEdit, 1.509 с) в
-транскрипте отсутствует: см. «Пробел в доказательствах».
+### `swift test -c release`
+
+```
+$ swift test -c release
+◇ Test deadProcessStillListedDoesNotResurrectSession() started.
+✔ Test deadProcessStillListedDoesNotResurrectSession() passed after 0.036 seconds.
+✔ Suite "Движок наблюдения" passed after 0.039 seconds.
+✔ Suite "Доменная модель правила" passed after 0.051 seconds.
+✔ Suite "Формат конфига на диске" passed after 0.069 seconds.
+✔ Suite "Хранилище конфига: карантин, уборка, путь" passed after 0.077 seconds.
+✔ Suite "Долговечная запись" passed after 0.090 seconds.
+✔ Test run with 45 tests in 5 suites passed after 0.090 seconds.
+EXIT=0
+grep -c 'warning:' → 0
+```
+
+### Счёт тестов: 44 → 45, ровно один новый
+
+Базовый прогон **до** правки, на том же дереве:
+
+```
+$ swift test
+✔ Test run with 45 tests in 5 suites passed  ← после
+✔ Test run with 44 tests in 5 suites passed  ← до (снято перед началом работы)
+```
+
+`grep -c "@Test func" Tests/TerminatorCoreTests/WatchEngineTests.swift` → **23** (было 22).
+Ни один из 44 прежних тестов не падал ни в одном из четырёх прогонов и ни один не правился.
+
+### `scripts/check-forbidden.sh`
+
+```
+$ scripts/check-forbidden.sh
+OK:    запрещённых конструкций не найдено
+EXIT=0
+```
+
+### `./build.sh`
+
+```
+$ ./build.sh
+--- swift build -c debug ---
+Building for debugging...
+Build complete! (0.14s)
+--- assemble build/Terminator.app ---
+--- codesign --force --sign "Terminator Dev" (последняя мутация бандла) ---
+build/Terminator.app: replacing existing signature
+--- designated requirement guard ---
+designated requirement: identifier "com.svvoff.terminator" and certificate leaf = H"74d582911cd0b2c7ff3961af4bb0561efd6a8f24"
+--- codesign --verify --strict (терминальный шаг) ---
+EXIT=0
+```
+
+Подпись — `Terminator Dev`, ad-hoc не использовался, порядок шагов в `build.sh` не менялся.
 
 ## Acceptance criteria
 
 | Критерий | Статус | Чем подтверждён |
 |---|---|---|
-| 1. Четыре и более подопытных, оси покрыты, паспорт по каждому | выполнен | **пять**; Apple/третья сторона — 2/3, sandbox/без — 3/2, App Store/прямая — 1/4, документные/нет — 3/2, scriptable/нет — 2/3. Паспорт снят командами до испытаний |
-| 2. Три состояния согласия и отрицательный контроль на каждого, с `OSStatus` числом и именем, длительностью и фактом закрытия | выполнен | таблица выше; в транскрипте каждый статус напечатан и числом, и именем (`-1744 (errAEEventWouldRequireUserConsent)` и т.д.) |
-| 3. Каждому испытанию предшествует сброс с **проверенным** `-1744` | выполнен | гейт зашит в сам прогон: скрипт грепает вывод `check quit` и **не отправляет** quit, если `-1744` не найден. Аннулированных испытаний нет — гейт не сработал ни разу |
-| 4. findings §5: оговорка про одного подопытного **заменена** измеренным обобщением | выполнен | старый абзац удалён, на его месте блок «Measured 2026-08-27 … five subjects — TASK-009». Оговорка не осталась рядом, а именно заменена |
-| 5. Вывод для TASK-005 сформулирован как рекомендация от измерения, без правки самой TASK-005 | выполнен | текст в §5 под «Consequence»; карточка TASK-005 не открывалась и не менялась |
-| 6. Ни одного файла вне `probes/task-001/` и `docs/` | выполнен | дифф ниже |
+| Амендмент 3, п. 1: `launchAnchor(of:)` не откатывается на `launchDate` | выполнен | дифф: тело `guard` — `return nil`; `grep -rn "degraded" Sources Tests scripts build.sh` → пусто |
+| Амендмент 3, п. 2: `launchDate` остаётся сверкой, `p_starttime` побеждает при расхождении > 0.4 с | выполнен | дифф: блок `if let launchDate { … disagreement > 0.4 … }` не изменён ни на символ |
+| Амендмент 3, п. 2: лог-строка `launch time degraded to launchDate` удалена | выполнен | `grep -rn "degraded" Sources Tests scripts build.sh` → ничего |
+| **Критерий 25** `deadProcessStillListedDoesNotResurrectSession` | выполнен | тест зелёный в debug и release; сессия снимается ровно одним `app-exited` (`sweep.logKinds == [.appExited]`), `activeSessions` пуст, `quitRequests` пуст на сверке и на всех тиках до +600 с |
+| Критерий 15 (не менялся, теперь покрывает всю историю) | выполнен | `processWithoutLaunchTimeDoesNotStartCountdown` зелёный без правок |
+| Критерии 1–22 раунда 1 | выполнены | 22 теста сюиты «Движок наблюдения» зелёные без единой правки |
+| Ручной чеклист | **требует человека** | см. «Не запускалось» |
+
+### Как именно критерий 25 проверяется тестом
+
+Сессия заводится на `p_starttime` (`pid 501`, старт `t(-600)`, лимит 10 мин) и доводится до
+`.awaitingQuit` тиком на дедлайне — то же состояние, что в трассе с машины автора. Затем
+приходит `.reconcile`, в снимке которого тот же `pid 501`, тот же bundle id, `.regular`, но
+`startTime == nil`. Проверяется:
+
+- `sweep.logKinds == [.appExited]` — ровно одно событие, не два и не три;
+- `sweep.quitRequests.isEmpty` — второго `quit-requested` нет;
+- `engine.activeSessions.isEmpty` — фантомная сессия не заведена;
+- цикл до +600 с: повторные сверки с тем же снимком возвращают пустой массив эффектов, тики
+  не эмитят `.requestQuit`, `activeSessions` остаётся пустым.
+
+## Не запускалось
+
+- **Ручной чеклист (`validation_profile: [manual-checklist]`) — не засчитан и засчитан быть не
+  может.** Человеку нужно перезапустить испытание 1 на исправленной сборке
+  (`./build.sh && ./build/Terminator.app/Contents/MacOS/Terminator`), закрыть наблюдаемое
+  приложение по дедлайну и убедиться в логе, что:
+  строки `launch time degraded to launchDate` нет вовсе; одно закрытие даёт **один**
+  `quit-requested` и **один** `app-exited`; строки `countdown-started` на якоре, отличающемся от
+  `p_starttime`, не появляется.
+- **Против живых приложений ничего не запускалось.** Ни одного Apple Event, ни одного quit,
+  собранное приложение не запускалось. `./build.sh` только собирает и подписывает.
+- **Адаптер юнит-тестами не покрыт и покрыт быть не может** в этой форме: `launchAnchor(of:)`
+  принимает `NSRunningApplication`, который нельзя сконструировать в тесте. Отсюда честная
+  оговорка: новый тест — это **фиксация контракта редьюсера**, а не red-green доказательство
+  правки адаптера. До правки он тоже был бы зелёным, потому что редьюсер не менялся. Он ловит
+  будущую регрессию в движке; правку адаптера подтверждает только ручной чеклист.
 
 ## Проверка скоупа
 
+Затронуты ровно две разрешённые зоны:
+
 ```
-$ git status --short
- M docs/ai/execution-log/archive/2026-08.md
- M docs/ai/execution-log/latest.md
+Sources/TerminatorAppKit/ProcessLaunchTime.swift   (функция launchAnchor(of:) и её док-комментарий)
+Tests/TerminatorCoreTests/WatchEngineTests.swift   (один добавленный тест + одна строка док-комментария сюиты)
+```
+
+Не тронуты, как требуют не-цели: `WatchEngine.swift`, `EngineInput.swift`, `EngineEffect.swift`,
+`ProcessSession.swift`, `QuitOutcome.swift`, `ExpiryAction.swift`, `Now.swift`,
+`ObservedProcess.swift`, `QuitSender.swift`, `RunningApplicationsObserver.swift`,
+`WatchController.swift`, `EngineLogRenderer.swift`, `TerminatorApp.swift`, `Package.swift`.
+Ни один из 22 существующих тестов не изменён. Карточки решений, findings, бэклог и статусы задач
+не трогались.
+
+`git status --short` после правки — побайтово тот же список, что и до неё (оба изменённых файла
+уже были untracked с раунда 1, новых файлов не появилось):
+
+```
+ M Sources/Terminator/TerminatorApp.swift
+ M docs/ai/current-context.md
+ M docs/ai/execution-state.md
  M docs/ai/handoff/current-execution-report.md
  M docs/ai/handoff/current-task-packet.md
- M docs/product/recon/macos-findings.md
- M probes/task-001/build-probe.sh
- M probes/task-001/main.swift
-R  docs/product/backlog/tasks/ready/TASK-009-… -> docs/product/backlog/tasks/in-progress/TASK-009-…
+RM docs/product/backlog/tasks/ready/TASK-004-watch-engine.md -> docs/product/backlog/tasks/in-progress/TASK-004-watch-engine.md
+ M docs/product/decisions/active/DEC-002-expiry-action.md
+?? Sources/TerminatorAppKit/EngineLogRenderer.swift
+?? Sources/TerminatorAppKit/ProcessLaunchTime.swift
+?? Sources/TerminatorAppKit/QuitSender.swift
+?? Sources/TerminatorAppKit/RunningApplicationsObserver.swift
+?? Sources/TerminatorAppKit/WatchController.swift
+?? Sources/TerminatorCore/EngineEffect.swift
+?? Sources/TerminatorCore/EngineInput.swift
+?? Sources/TerminatorCore/ExpiryAction.swift
+?? Sources/TerminatorCore/Now.swift
+?? Sources/TerminatorCore/ObservedProcess.swift
+?? Sources/TerminatorCore/ProcessSession.swift
+?? Sources/TerminatorCore/QuitOutcome.swift
+?? Sources/TerminatorCore/WatchEngine.swift
+?? Tests/TerminatorCoreTests/WatchEngineTests.swift
 ```
 
-Не тронуто: продуктовое дерево (`Package.swift`, `Sources/`, `Tests/`, `build.sh`,
-`Packaging/`), `scripts/`, `docs/product/decisions/**`, `TASK-005` и любая другая карточка,
-`docs/product/current-state.md`.
-
-`tccutil` вызывался **17 раз**, каждый раз с идентификатором
-`com.svvoff.terminator.probe` — по одному сбросу на каждую отправку quit. Форма без
-идентификатора не использовалась ни разу.
-
-Завершались только пять приложений, открытых оператором для этой задачи. Ни `forceTerminate`,
-ни `terminate()`, ни сигналов: единственный способ завершения в пробнике — рукописный
-`'aevt'/'quit'`.
-
-Коммитов нет, веток не создавал.
-
-## Пробел в доказательствах
-
-**Транскрипт первого `Allow` на TextEdit перезаписан.** Испытание 3 прогонялось дважды (см.
-отклонение 2), и перезапуск писался `tee` в тот же файл — `tee` усекает. Числа первого прогона
-(`noErr`, блокировка 1.509 с) сохранились только в прозе журнала и отчёта, сырой строки
-пробника за ними нет.
-
-Карточка требует доказательства по каждому диалогу. Для этого диалога требование выполнено
-частично: кнопка и результат записаны, транскрипт — нет. Оставшиеся десять диалогов
-задокументированы полностью. Второй прогон того же испытания записан целиком и именно он
-засчитан как испытание 3.
-
-**Дефект пробника, найденный ревью, ни на одно измерение не повлиявший.** После расширения
-allow-list `findSubject()` возвращает nil в двух разных случаях — «запущено ноль» и «запущено
-больше одного». `observeTermination` трактует nil как «приложение исчезло». Если бы во время
-наблюдения работали два подопытных из списка, наблюдение немедленно отрапортовало бы ложную
-смерть на 0.000 с.
-
-Ни одно измерение этим не задето: в транскрипте каждой отправки стоит `found 0`, то есть
-двусмысленности не возникало ни разу, а перед каждым подопытным `probe status` показывал
-остальных четверых как «not running». Но пробник теперь переиспользуемый актив, и следующая
-карточка, которая его возьмёт, должна это починить или знать об этом.
-
-## Отклонения от пакета
-
-1. **`build-probe.sh`: строка `NSAppleEventsUsageDescription` переписана.** Пакет разрешал
-   «только расширение allow-list». Строка рендерится в диалоге согласия **дословно**, и с пятью
-   подопытными текст «…against TextEdit» вводил бы оператора в заблуждение ровно в тот момент,
-   когда он этот диалог читает и записывает в доказательства. Заявлено заранее в пакете.
-2. **Испытание 3 на TextEdit прогнано дважды.** Первый `Allow` (`noErr` за 1.509 с) прошёл без
-   захвата текста диалога. Сброшен и перезапущен ради скриншота; первый прогон записан в
-   журнал, а не выброшен.
-3. **Todoist прогнан пять раз вместо трёх.** Два лишних прогона — характеризация расхождения
-   `NSWorkspace` и опыт на возвращение приложения.
-4. **findings §4 правлен помимо §5.** Карточка это разрешает явно: «§4 only if a subject
-   contradicts what §4 now records». Подопытный противоречит.
-5. **Ротация журнала.** Запись TASK-002 вытеснена в архив: с записью TASK-009 `latest.md` вышел
-   бы далеко за ориентир в 400 строк. Правило ротации — собственное правило журнала.
-
-## Эскалации
-
-**Одна, и она не блокирует приёмку карточки.**
-
-В первом испытании Todoist новый процесс приложения появился через 31 с после quit; оператор
-его не запускал (спрошено и подтверждено), агента автозапуска нет нигде. **Не воспроизвелось**
-в двух контролируемых повторах (90 с и 120 с поллинга `ps` каждые 0.5 с). В том прогоне
-поллера не было, поэтому нельзя установить, вернулось приложение внутри окна наблюдения или
-после него.
-
-Решение исполнителя: **не** писать это в findings как свойство Todoist. Записано в §4 и в
-журнал как открытый предмет наблюдения для TASK-004. Механизм не выяснялся — карточка это
-запрещает.
-
-Оркестратору решать, нужна ли отдельная карточка на воспроизведение. По моей оценке — нет,
-пока не появится второе наблюдение: TASK-004 всё равно обязана подтверждать смерть на ядре,
-и это её и защитит.
+(`docs/ai/handoff/current-execution-report.md` в списке — это сам этот файл.)
 
 ## Риски
 
-1. **TASK-005 повисла без основания.** Измерение говорит, что подсистема согласия ограничителю
-   не нужна. Карточка при этом лежит в `ready/` и написана как обязательная. Пока её судьбу не
-   решат, бэклог содержит P0-карточку, которую измерение опровергло.
-2. **Три документа и два решения устарели сильнее, чем были.** EPIC-02, DEC-005, DEC-006
-   («only permission cost is Apple Events»), DEC-002 (`-1743` как терминальное) и DEC-004
-   (диалог в момент закрытия). До TASK-009 правка была отложена «до исхода TASK-009» — исход
-   получен.
-3. **Расхождение `NSWorkspace` с ядром бьёт по TASK-004 напрямую.** Детекция там — KVO по
-   `runningApplications`, а список отстаёт на секунды и непостоянно. Карточку TASK-004 стоит
-   перечитать на этот счёт до делегирования.
-4. **Пробник теперь зависимость.** TASK-001 объявляла его одноразовым; TASK-009 сделала его
-   своей зависимостью с разрешения собственной карточки. Третья карточка, которая захочет им
-   воспользоваться, должна это обосновывать заново, а не считать прецедент правилом.
+1. **Процесс без `p_starttime` теперь не считается вообще.** Если найдётся живой процесс, у
+   которого `sysctl(KERN_PROC_PID)` молчит, его отсчёт не начнётся никогда, а не начнётся от
+   `launchDate`. findings §3 измерил 90 из 90 у живых, так что состояние считается
+   несуществующим — но это измерение, а не гарантия ядра. Симптом, если оно всё-таки
+   существует: приложение видно в логе как `app-detected`, а `countdown-started` для него не
+   появляется никогда. Это заметно в логе и не тихо.
+2. **Окно всё ещё существует, просто теперь молчит.** Мёртвый процесс, висящий в снимке до
+   19 с, снимается первой же сверкой. Если он в этом окне действительно перезапустится с тем же
+   pid, новая сессия заведётся на следующей сверке, когда `p_starttime` станет доступен, —
+   с полным свежим лимитом, как требует DEC-003.
+3. **Правка проверена только тестами и глазами.** Подтверждение, что фантом на живой машине
+   исчез, даст только испытание 1 ручного чеклиста.
 
-## Незавершённое
+## Незавершённое и follow-up
 
-Ничего из скоупа карточки. Все пять подопытных прошли все три состояния согласия и
-отрицательный контроль; ни одно испытание не аннулировано; ни один подопытный не остался
-запущенным по вине спайка — финальная проверка показала все пять в состоянии «не запущено».
+- Испытание 1 ручного чеклиста на исправленной сборке — за человеком.
+- Секция «4. Launch time» карточки TASK-004 по-прежнему описывает удалённый откат. Амендмент 3
+  это оговаривает явно, но привести секцию в соответствие (или оставить как есть, раз амендмент
+  сильнее) — решение оркестратора; исполнитель карточки не правит.
+- Свою работу не принимаю: продакшн-код ревьюит оркестратор отдельным ходом.
