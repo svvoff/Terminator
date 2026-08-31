@@ -645,3 +645,137 @@ last two defects reached the author instead of a test.
 Checklist **item 5 is rewritten** to match: choosing a bundle with no identifier leaves the panel
 **open** and shows the reason **in the panel**, and no rule is created. Add to the same item:
 choosing an application already on the list is refused the same way.
+
+
+---
+
+## Amendment 5 · 2026-08-31 — the row shows a human-readable application name
+
+Written by the orchestrator at the author's request, **decided by the author**. This is the only
+amendment to this card that adds scope rather than correcting a defect, and it is recorded as an
+addition rather than smuggled in as a fix.
+
+### Why this is in scope for the MVP and not scope creep
+
+The card's Scope already commits to a per-app row, and this is the product's only user interface.
+Rows currently identify an application by its bundle identifier alone, rendered monospaced with
+`.truncationMode(.middle)` — so `com.apple.printcenter` reads as `com.appl…intcenter` and
+`org.khronos.gltf.glTFViewer` as `org.khro…lTFViewer`. The author cannot tell at a glance what a
+row refers to. That is a defect of the surface the card is responsible for, not a Stage 2 feature.
+
+Nothing here belongs to a later stage: no statistics, no chart, no icon, no search, no grouping.
+
+### Where the name comes from — and the trap in the obvious answer
+
+`FileManager.default.displayName(atPath:)`, on the URL from
+`NSWorkspace.shared.urlForApplication(withBundleIdentifier:)`.
+
+**Do not read `CFBundleDisplayName`, and do not fall back to `CFBundleName`.**
+
+> **Corrected 2026-08-31, after the round-4 diff.** This table first claimed that
+> `org.khronos.gltf.glTFViewer` carried **neither** key, and concluded that the Info.plist keys
+> "silently fail on a third of this author's list". Both were wrong, and the probe that produced
+> them was wrong in a specific way worth keeping: it read `Contents/Info.plist`, and a **wrapped
+> iOS application keeps its `Info.plist` at the bundle root**, not under `Contents/`. The real
+> file is `Wrapper/glTFViewer.app/Info.plist` and it carries both keys. The executor caught half
+> of this and reported `CFBundleDisplayName` as absent there, which is also wrong. The decision
+> below is unchanged; only the argument for it is now the true one.
+
+Measured on the four rules the author actually has:
+
+| Bundle identifier | `CFBundleDisplayName` | `CFBundleName` | `displayName(atPath:)` |
+|---|---|---|---|
+| `com.apple.TextEdit` | TextEdit | TextEdit | TextEdit |
+| `com.tdesktop.Telegram` | **absent** | Telegram | Telegram |
+| `org.khronos.gltf.glTFViewer` | glTF Viewer | glTF**Viewer** — no space | glTF Viewer |
+| `com.apple.printcenter` | Print Center | Print Center | Print Center |
+
+So neither key alone is right: `CFBundleDisplayName` is absent on one subject of four, and
+`CFBundleName` gives `glTFViewer` where the application is called *glTF Viewer* everywhere else.
+A cascade of `CFBundleDisplayName ?? CFBundleName` would in fact produce the correct name on all
+four — that is stated plainly rather than hidden, because the case against it does not need
+exaggerating.
+
+`displayName(atPath:)` is still the right call, for reasons that survive the correction:
+
+- it returns **what Finder shows**, which is the name the user recognises, rather than whatever a
+  developer typed into a key;
+- it is **localized** — it honours `InfoPlist.strings` and the user's language; the raw keys do not;
+- it follows a `.app` the user has **renamed** on disk;
+- it is one call that never returns `nil`, instead of a cascade whose fallback order is itself a
+  decision someone can get wrong later;
+- reading the keys at all means resolving where a bundle keeps its `Info.plist` — and, as the
+  correction above shows, that layout is not the same for every `.app` in `/Applications`.
+
+### The name is never persisted
+
+`config.json` keeps carrying `bundleIdentifier` and nothing else. Storing a name would be a
+change to a human-facing on-disk contract — a migration under zone 6 — in exchange for a value
+that goes stale the moment an application is renamed, localized differently or replaced. The name
+is resolved for display and lives only in memory.
+
+### Resolution is cached per popover opening, never per redraw
+
+The popover's contents re-render **once a second** to advance the countdown.
+`urlForApplication(withBundleIdentifier:)` is a LaunchServices lookup, and doing one per row per
+frame is waste for a value that cannot change while the popover is open.
+
+Names are resolved in `popoverDidOpen()`, **after `reloadFromDisk()`** so that a rule added by a
+hand edit is resolved too, and held in a dictionary keyed by bundle identifier. This is the
+discipline already applied to the launch-at-login status: one read per opening, not one per frame.
+
+### The row
+
+- **Primary line:** the display name, in the ordinary body font — *not* monospaced. It keeps the
+  existing `.help(...)` tooltip carrying the full bundle identifier.
+- **Secondary area, first line:** the bundle identifier, caption size, monospaced, secondary
+  colour, at the same indentation the status lines already use.
+- **Below it:** the existing status line or lines, unchanged — `not running`, `off`, or one
+  remaining-time line per running instance.
+
+The bundle identifier stays visible deliberately. It is the exact match key (findings §10), it is
+what `config.json` carries and what the author edits by hand, and it is what every log line
+prints. A popover that named applications one way while the log and the config named them another
+would make those three impossible to line up.
+
+**One judgement call, made by the orchestrator and recorded rather than assumed.** The identifier
+gets its own caption line rather than being appended to the status text as `com.tdesktop.Telegram
+· off`. Appending reads well in the no-instances branch and falls apart in the other one, where
+there is one status line per running instance and nothing to append to.
+
+### When the name cannot be resolved
+
+An application that is not installed resolves to nothing — and this case is real, because a rule
+outlives the application it names. Then the **primary line falls back to the bundle identifier**,
+rendered as it is today, and the secondary identifier line is **omitted** so the same string does
+not appear twice.
+
+### Sorting does not change
+
+Rows keep sorting by remaining time and then by **`bundleIdentifier`** — never by display name.
+The acceptance test `equalRemainingTimesBreakTieByBundleIdentifier` stays green and stays the
+authority. Sorting by a value resolved from the environment would make row order depend on which
+applications happen to be installed.
+
+### `TerminatorCore` is not touched
+
+`PopoverViewModel` and `PopoverRow` gain nothing. The display name is presentation, it takes no
+part in sorting, filtering or any decision, and the core reads no environment (`Now.swift`).
+Resolution lives in `PopoverModel` in the app target, where AppKit is already available.
+
+### No new log lines
+
+A resolved name is not a diagnostic event, and an unresolved one is visible in the row itself as
+the identifier fallback. One line per application per opening would be noise in the channel that
+DEC-004 makes the entire explanation of the product's behaviour.
+
+### Validation
+
+No unit test: resolution depends on `NSWorkspace`, LaunchServices and what is installed on the
+machine, and the card's non-goals already exclude mock-`NSWorkspace` tests. `swift test` must stay
+at **83 tests in 8 suites** — this amendment adds no test and removes none.
+
+Manual checklist gains **item 16**: every row shows a readable application name above its bundle
+identifier; `com.apple.printcenter` reads as *Print Center* and `org.khronos.gltf.glTFViewer` as
+*glTF Viewer*; a rule whose application is not installed still shows its identifier and does not
+show an empty name.

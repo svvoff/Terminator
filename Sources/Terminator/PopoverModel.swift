@@ -78,6 +78,17 @@ final class PopoverModel {
     /// перерисовывается раз в секунду (findings §14).
     private(set) var loginItemStatus: LoginItemStatus?
 
+    /// Человекочитаемые имена приложений, снятые на текущее открытие поповера.
+    ///
+    /// Ключ — bundle id, значение — то же имя, которое показывает Finder. Идентификатор, для
+    /// которого имя не нашлось, в словаре **отсутствует**: правило переживает удаление
+    /// приложения, и пустая строка на месте имени была бы хуже самого идентификатора.
+    ///
+    /// Словарь живёт только в памяти. В `config.json` имя не попадает никогда: это сменило бы
+    /// человекочитаемый контракт на диске ради значения, которое протухает от переименования,
+    /// смены языка или замены приложения.
+    private var displayNames: [String: String] = [:]
+
     /// Регистрация записана, но система ещё не сообщает включённое состояние.
     ///
     /// Сообщит ли `statusForLegacyPlist` включённое состояние сразу после записи файла или
@@ -119,11 +130,56 @@ final class PopoverModel {
     func popoverDidOpen() {
         controller.reloadFromDisk()
         refresh()
+        // Строго после `refresh()`: имена резолвятся по тому набору правил, который только что
+        // пришёл с диска, иначе правило, дописанное в файл руками, осталось бы без имени до
+        // следующего открытия.
+        resolveDisplayNames()
         readLoginItemStatus()
         if let quarantine {
             let reason = String(describing: quarantine)
             popoverLog.notice("popover opened with quarantined store, edits will be refused: reason=\(reason, privacy: .public)")
         }
+    }
+
+    /// Имя приложения для строки списка. `nil` означает «не резолвится» — приложение не
+    /// установлено, а правило его пережило; вью в этом случае показывает идентификатор.
+    func displayName(for bundleIdentifier: String) -> String? {
+        displayNames[bundleIdentifier]
+    }
+
+    /// Резолв имён — **одно чтение на открытие поповера, а не на кадр**.
+    ///
+    /// Содержимое поповера перерисовывается раз в секунду ради отсчёта, а
+    /// `urlForApplication(withBundleIdentifier:)` — запрос в LaunchServices. Один запрос на
+    /// строку на кадр был бы платой за значение, которое при открытом поповере не меняется. Та
+    /// же дисциплина уже применена к статусу автозапуска: одно чтение на открытие.
+    ///
+    /// **Имя берётся у Finder, а не из `Info.plist`.** Ключи не годятся: `CFBundleDisplayName`
+    /// у `com.tdesktop.Telegram` отсутствует, а обёрнутое iOS-приложение
+    /// `org.khronos.gltf.glTFViewer` не несёт на верхнем уровне даже каталога `Contents/` —
+    /// его настоящий бандл лежит под `Wrapper/`, и `CFBundleName` там читается как
+    /// `glTFViewer`, без пробела, то есть не так, как это приложение называет Finder.
+    /// Реализация через ключи выглядит правильной и молча даёт то отсутствие, то не то имя;
+    /// `displayName(atPath:)` вдобавок отдаёт локализованное имя.
+    ///
+    /// Имя — presentation и ничего больше: в сортировку, в фильтрацию и ни в одно решение оно
+    /// не входит. Порядок строк остаётся за ядром — по остатку, затем по `bundleIdentifier`.
+    private func resolveDisplayNames() {
+        var resolved: [String: String] = [:]
+        resolved.reserveCapacity(config.rules.count)
+        for bundleIdentifier in config.rules.keys {
+            guard
+                let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleIdentifier)
+            else {
+                // Приложение не установлено. Случай настоящий: правило переживает удаление
+                // приложения, и строка обязана остаться на месте — со своим идентификатором.
+                continue
+            }
+            let name = FileManager.default.displayName(atPath: url.path)
+            guard !name.isEmpty else { continue }
+            resolved[bundleIdentifier] = name
+        }
+        displayNames = resolved
     }
 
     // MARK: - Автозапуск

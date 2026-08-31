@@ -161,8 +161,7 @@ private struct RuleRowView: View {
                 .toggleStyle(.switch)
                 .controlSize(.mini)
 
-                Text(row.bundleIdentifier)
-                    .font(.system(.body, design: .monospaced))
+                primaryLabel
                     .lineLimit(1)
                     .truncationMode(.middle)
                     .help(row.bundleIdentifier)
@@ -188,10 +187,57 @@ private struct RuleRowView: View {
                 .help("Remove this rule")
             }
 
+            identifierLine
+
             statusLines
         }
         .onAppear { limitText = displayedLimit }
         .onChange(of: row.limitMinutes) { _, _ in limitText = displayedLimit }
+    }
+
+    /// Имя приложения на текущее открытие поповера. Резолв сделан один раз в
+    /// `popoverDidOpen()`; здесь — только чтение словаря, потому что тело вью выполняется
+    /// раз в секунду.
+    private var displayName: String? {
+        model.displayName(for: row.bundleIdentifier)
+    }
+
+    /// Первая строка правила: имя приложения, если оно резолвится, иначе идентификатор.
+    ///
+    /// Имя идёт обычным body-шрифтом: моноширинный нужен идентификатору, у которого значим
+    /// каждый символ, а не имени. Подсказка `.help(...)` с полным идентификатором висит на
+    /// этой строке в обоих случаях — она навешана на месте вызова.
+    @ViewBuilder
+    private var primaryLabel: some View {
+        if let displayName {
+            Text(displayName)
+        } else {
+            // Приложение не установлено, имени нет. Строка выглядит ровно так, как выглядела
+            // до появления имён.
+            Text(row.bundleIdentifier)
+                .font(.system(.body, design: .monospaced))
+        }
+    }
+
+    /// Идентификатор под именем. Отдельной строкой, а не припиской к статусу: приписка
+    /// читается в ветке без экземпляров и разваливается во второй, где статусных строк
+    /// столько же, сколько запущенных экземпляров.
+    ///
+    /// Идентификатор остаётся на виду намеренно: это точный ключ сопоставления (findings §10),
+    /// он же лежит в `config.json`, который автор правит руками, и он же печатается в каждой
+    /// строке лога. Когда имя не резолвится, идентификатор уже стоит первой строкой — и здесь
+    /// не повторяется.
+    @ViewBuilder
+    private var identifierLine: some View {
+        if displayName != nil {
+            Text(row.bundleIdentifier)
+                .font(.system(.caption, design: .monospaced))
+                .foregroundStyle(.secondary)
+                // Длинный идентификатор переносится, а не усекается: усечение по середине на
+                // первой строке — ровно тот дефект, из-за которого имя и появилось.
+                .fixedSize(horizontal: false, vertical: true)
+                .padding(.leading, 30)
+        }
     }
 
     private var displayedLimit: String {
