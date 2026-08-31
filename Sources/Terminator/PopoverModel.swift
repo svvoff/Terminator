@@ -273,6 +273,13 @@ final class PopoverModel {
         panel.message = "Choose an application to put on a time limit."
         panel.directoryURL = URL(fileURLWithPath: "/Applications", isDirectory: true)
 
+        // Приложение `.accessory` (`LSUIElement=true`, findings §7) не активируется ничем в
+        // дереве: открытие поповера даёт временное key-окно, но не активацию. Модальная панель
+        // неактивного приложения получает окно, которое не является key, и первые клики уходят
+        // на активацию окна вместо выбора строки. `NSApp.activate()` — без
+        // `ignoringOtherApps:`, устаревшего с macOS 14, а таргет ровно `.macOS(.v14)`.
+        NSApp.activate()
+
         guard panel.runModal() == .OK, let url = panel.url else { return }
 
         // Идентификатор берётся из бандла, а не из имени файла: сопоставление идёт по точной

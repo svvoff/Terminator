@@ -462,3 +462,75 @@ TASK-006 under it. DEC-006 does bind this surface — the Quit Terminator button
 friction-free disable toggle are its consequences — but editing a decision card's frontmatter is
 the user's call, not the orchestrator's alone. The packet carries DEC-006 as the card asks; the
 router row is untouched and recorded as an open documentation defect.
+
+
+---
+
+## Amendment 3 · 2026-08-29 — the add-app panel opens without focus; one seam granted
+
+Written by the orchestrator **after** the manual checklist found a defect in accepted code.
+Verdict on round 1: REQUEST_CHANGES. This is the same shape as TASK-004's amendment 3 — the
+checklist found what the unit tests could not, because the defect lives in a surface no unit
+test can reach.
+
+### What the author observed
+
+Checklist item 3. Pressing **Add App…** opens the `NSOpenPanel`, but clicking an application in
+it does nothing. After clicking around in various places the panel "woke up" and selection
+started working.
+
+### Why it happens
+
+Three facts, each checked rather than argued:
+
+1. The app is `.accessory` — `LSUIElement=true` in `Packaging/Info.plist`, and packaging fixes
+   the policy before any code runs (findings §7).
+2. **Nothing in the tree activates the application.** `grep -rn "NSApp.activate" Sources/`
+   returns nothing; the only `NSApplication` references are the delegate adaptor, the
+   `terminate(nil)` in the Quit button, and a policy-conversion helper.
+3. `NSOpenPanel.runModal()` is the only modal surface in the app
+   (`PopoverModel.swift:267`, `:276`).
+
+A modal panel raised by an application that is not active gets a window that is not key. The
+first clicks are spent activating the window instead of selecting a row, which is exactly the
+reported symptom — including the part where it eventually starts working.
+
+The `MenuBarExtra` popover makes this reachable in normal use: opening the popover gives the
+popover a transient key window but does **not** activate the application, so every add-app press
+starts from the inactive state.
+
+### The seam
+
+`PopoverModel.addApplication()` may call `NSApp.activate()` immediately before
+`panel.runModal()`. That is the whole change: one call, one line, in a method this card already
+owns.
+
+**Use `NSApp.activate()`, not `activate(ignoringOtherApps:)`.** The latter is deprecated as of
+macOS 14 and this package targets exactly `.macOS(.v14)`, so the deprecated form would emit a
+`warning:` — and zero `warning:` lines in debug and release is a gate this project enforces on
+every card.
+
+Nothing else changes. In particular:
+
+- no second modal surface, no `NSAlert`, no window;
+- no deactivation call after the panel closes — an `.accessory` app owns no windows, and
+  inventing a restore step here would be guessing rather than fixing;
+- the popover's transient-window behaviour is not worked around, re-styled or pinned open.
+
+### What this does not disturb
+
+Terminator's own activation is **transparent to the focus tracker**: TASK-007's reducer ignores
+any activation whose `activationPolicy != .regular`, and Terminator is `.accessory`. Activating
+the app to raise the panel therefore cannot close, split or fragment a focus span. This is
+stated so the next reader does not go looking for an interaction that is already ruled out by
+construction.
+
+### Validation
+
+No unit test. `NSOpenPanel` cannot be constructed or driven headlessly, which is the same reason
+the adapter layer is exempt in TASK-007 — and it is why this defect reached the author instead
+of a test in the first place. The proof is checklist item 3 re-run on the fixed build: the panel
+opens and the **first** click selects an application.
+
+Checklist item 15 (Finder is addable and unguarded) is blocked behind the same fix and is run in
+the same pass.
