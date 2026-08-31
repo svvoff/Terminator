@@ -256,6 +256,59 @@ final class PopoverModel {
 
     // MARK: - Действия пользователя
 
+    /// Валидатор выбора в панели добавления, **удерживаемый хранимым свойством**.
+    ///
+    /// `NSOpenPanel.delegate` — слабая ссылка. Делегат, созданный инлайн в
+    /// `addApplication()`, освободился бы сразу после присваивания: `panel(_:validate:)` не
+    /// вызвался бы ни разу, панель закрывалась бы по-прежнему, отказ снова уходил бы в
+    /// невидимую строку `notice` — и дефект выглядел бы неисправленным, молча. Сильная
+    /// ссылка живёт здесь, панель одалживает её на время `runModal()`.
+    private let addPanelValidator = AddApplicationValidator()
+
+    /// Проверка выбора **внутри** панели: панель, отклонившая выбор, не закрывается и сама
+    /// показывает причину — пользователь остаётся в том же диалоге и может выбрать другое
+    /// приложение, не открывая поповер заново.
+    ///
+    /// Зачем это здесь, а не в `notice`: путь добавления — единственный в поповере, который
+    /// открывает модальную панель, а открытие панели закрывает сам поповер вместе со
+    /// строкой `notice`. Отказ, поднятый после `runModal()`, пользователю уже не виден;
+    /// поднятый отсюда — виден в момент действия.
+    ///
+    /// Проверяются ровно два условия и только они: нет `bundleIdentifier` и правило для него
+    /// уже есть. Ни подпись, ни платформа, ни запущенность не проверяются — обёрнутое
+    /// iOS-приложение законная цель, его идентификатор резолвится через `Wrapper/`.
+    private final class AddApplicationValidator: NSObject, NSOpenSavePanelDelegate {
+
+        /// Идентификаторы, у которых правило уже есть. Снимок, снятый перед `runModal()`:
+        /// пока панель модальна, ни один путь записи конфига не исполняется, так что снимок
+        /// и живой конфиг совпадают на всё время проверки.
+        var identifiersOnTheList: Set<String> = []
+
+        /// Формулировка отказа читается внутри открытой панели, поэтому говорит о самом
+        /// выборе, а не о ненаступившем последствии: правило здесь ещё и не начинали
+        /// создавать.
+        func panel(_ sender: Any, validate url: URL) throws {
+            guard let bundleIdentifier = Bundle(url: url)?.bundleIdentifier else {
+                throw Self.refusal(
+                    "\(url.lastPathComponent) has no bundle identifier and cannot be put on a time limit."
+                )
+            }
+            guard !identifiersOnTheList.contains(bundleIdentifier) else {
+                throw Self.refusal("\(bundleIdentifier) is already on the list.")
+            }
+        }
+
+        /// Панель показывает `localizedDescription` брошенной ошибки сама. Своей поверхности
+        /// — ни алерта, ни окна, ни второй модальной — здесь не заводится.
+        private static func refusal(_ message: String) -> NSError {
+            NSError(
+                domain: TerminatorLog.subsystem + ".addapplication",
+                code: 1,
+                userInfo: [NSLocalizedDescriptionKey: message]
+            )
+        }
+    }
+
     /// Добавление приложения: панель выбора, `Bundle(url:)`, правило.
     ///
     /// Панель отфильтрована по типу содержимого `.application`. Это единственный механизм
@@ -273,6 +326,11 @@ final class PopoverModel {
         panel.message = "Choose an application to put on a time limit."
         panel.directoryURL = URL(fileURLWithPath: "/Applications", isDirectory: true)
 
+        // Снимок списка отдаётся валидатору перед показом панели, а сам валидатор — сильная
+        // ссылка на хранимом свойстве: `panel.delegate` слабая и локальный объект не удержит.
+        addPanelValidator.identifiersOnTheList = Set(config.rules.keys)
+        panel.delegate = addPanelValidator
+
         // Приложение `.accessory` (`LSUIElement=true`, findings §7) не активируется ничем в
         // дереве: открытие поповера даёт временное key-окно, но не активацию. Модальная панель
         // неактивного приложения получает окно, которое не является key, и первые клики уходят
@@ -282,6 +340,11 @@ final class PopoverModel {
 
         guard panel.runModal() == .OK, let url = panel.url else { return }
 
+        // Оба гарда ниже — запасной путь: при живом валидаторе панель не закрывается и сюда
+        // такой выбор не доходит. Сработавший гард означает, что `panel(_:validate:)` не
+        // выполнился, то есть делегат умер, — и лог-строка будет единственным свидетельством
+        // этого, потому что `notice` пользователь на этом пути не увидит.
+        //
         // Идентификатор берётся из бандла, а не из имени файла: сопоставление идёт по точной
         // строке `bundleIdentifier` и ни по чему больше (findings §10).
         guard let bundleIdentifier = Bundle(url: url)?.bundleIdentifier else {
@@ -292,6 +355,7 @@ final class PopoverModel {
 
         guard config.rule(for: bundleIdentifier) == nil else {
             notice = "\(bundleIdentifier) is already on the list."
+            popoverLog.notice("rule not created, bundle already on the list: bundle=\(bundleIdentifier, privacy: .public)")
             return
         }
 

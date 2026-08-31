@@ -133,7 +133,10 @@ surfaces and `consent` for a pre-warm it triggers.
 - No SwiftUI `Settings` scene, and no separate preferences window.
 - No countdown in the menu bar label. That needs `NSStatusItem` rather than `MenuBarExtra` and
   is deferred to TASK-107. The MVP countdown lives in the popover.
-- No notification, alert, HUD or pre-quit dialog of any kind (DEC-004).
+- No notification subsystem, no HUD, no pre-quit or at-expiry dialog, and no alert about a
+  countdown, a deadline or a quit (DEC-004). **Narrowed by amendment 4:** this never covered
+  a synchronous refusal attached to a file panel the user just opened, and the original
+  wording ("alert … of any kind") was wider than the decision it cites.
 - No statistics or charts. Focus data is collected silently by TASK-007; the chart UI is
   Stage 2 (TASK-101).
 - No scheduling or per-time-of-day UI (TASK-102).
@@ -534,3 +537,111 @@ opens and the **first** click selects an application.
 
 Checklist item 15 (Finder is addable and unguarded) is blocked behind the same fix and is run in
 the same pass.
+
+
+---
+
+## Amendment 4 · 2026-08-29 — the refusal surface is unreachable on the add-app path
+
+Written by the orchestrator after checklist item 5 passed **mechanically** and failed
+**as a product**. Round 2's verdict stands; this is a separate defect found by a separate item.
+
+### What the author observed
+
+Item 5 works exactly as specified: choosing `OpenSC Notify.app` (whose `Info.plist` carries no
+`CFBundleIdentifier`) creates no rule and produces the line *"OpenSC Notify.app has no bundle
+identifier. No rule was created."*
+
+But the user does not see that line at the moment they act. The panel dismisses, and the line is
+sitting inside a popover that is no longer on screen. From the user's chair, pressing Add App…
+and choosing a file did **nothing at all**.
+
+### Why this is a card defect and not a preference
+
+The add-app path is **the only path in the popover that opens a modal panel**, and opening one
+dismisses the `MenuBarExtra` popover — that is what `.menuBarExtraStyle(.window)` does when it
+loses key status. Every other refusal in this card is raised while the popover is open and is
+visible immediately: a limit outside `Limit.allowedMinutes`, a launch-at-login failure, the
+quarantine banner. The author's own screenshot confirms the banner and a stale add-app notice
+rendering side by side.
+
+So the `notice` line is the right surface for every refusal **except** the three raised after the
+panel closes: no bundle identifier, already on the list, and a rejection from the rule model.
+
+This is the fourth instance of one shape in this card's history: **a surface that exists but
+cannot be reached on the path that needs it.** Amendment 2 found three; amendment 3 found the
+panel opening without focus; this is the fourth.
+
+### DEC-004 does not govern this, and is not being reopened
+
+Checked against the decision text rather than against its title:
+
+- The Decision opens *"Nothing fires **before a watched app is quit**"* — the scope is stated in
+  the sentence, and the enumeration that follows ("no alert", "no sound", …) is bound by it.
+- *"The entire notification subsystem is out of scope"* is about the notification **framework**:
+  no linking, no authorisation request, nothing to onboard. `NSAlert` and an `NSOpenPanel`
+  validation refusal are AppKit, already linked, and ask for no permission.
+- The Reason — *"a warning turns a mechanical rule into a negotiation"* — is an argument about
+  announcing a kill. It has nothing to say about telling someone the file they just chose cannot
+  be used.
+- All three **Alternatives considered** are pre-expiry or at-expiry warnings.
+- **Applies to → TASK-006** constrains the popover *"as a deadline approaches"*.
+- The **Review trigger** engages on *"a quit the author cannot reconstruct from the log"*. No
+  quit happens here.
+
+DEC-004 stays closed and unamended.
+
+### The card's own non-goal is what blocked this, and it is corrected here — narrowly
+
+Non-goals currently reads:
+
+> No notification, alert, HUD or pre-quit dialog **of any kind** (DEC-004).
+
+That "of any kind" is wider than the decision it cites. **Corrected to:** no notification
+subsystem, no HUD, no pre-quit or at-expiry dialog, and no alert about a countdown, a deadline or
+a quit. A **synchronous refusal attached to a file panel the user just opened** is not covered by
+that non-goal and never was covered by DEC-004.
+
+Nothing else in the non-goal changes. In particular there is still no alert anywhere on the
+countdown, expiry or quit paths, and no notification framework is linked.
+
+### The seam
+
+`PopoverModel.addApplication()` may validate the selection **inside the panel**, via
+`NSOpenPanelDelegate.panel(_:validate:)`, throwing an error for a selection that cannot become a
+rule. The panel then refuses to close and displays the reason itself, leaving the user in the
+dialog they are already looking at, able to choose another application without reopening the
+popover.
+
+Two conditions are validated, and only these two:
+
+1. `Bundle(url:)?.bundleIdentifier` is `nil` — no identifier;
+2. a rule for that identifier already exists — already on the list.
+
+**The delegate must be held by a stored property**, not created inline. `NSOpenPanel.delegate` is
+a **weak** reference: an inline delegate object is deallocated immediately, validation silently
+never runs, and the failure looks exactly like the bug being fixed. This trap is named here
+because it is silent, and silent is the failure mode this card keeps producing.
+
+The existing guards after `runModal()` **stay** as fallbacks, and each keeps writing its log line.
+If one of them ever fires, validation did not run — so the log line is the only evidence that the
+delegate died, and it must remain.
+
+### What does not change
+
+- No `NSAlert`, no window, no second modal surface of our own.
+- The popover's transient behaviour is not worked around, pinned open or re-styled.
+- `notice` stays exactly as it is for every other refusal path.
+- No validation of anything else: not the app's signature, not its platform, not whether it is
+  running. A wrapped iOS application is a legitimate target — the author added
+  `org.khronos.gltf.glTFViewer` successfully, and its identifier resolves through the wrapper.
+
+### Validation
+
+No unit test. `NSOpenPanel` and its delegate cannot be constructed or driven headlessly — the
+same exemption the adapter layer carries in TASK-007, and the same reason both of this card's
+last two defects reached the author instead of a test.
+
+Checklist **item 5 is rewritten** to match: choosing a bundle with no identifier leaves the panel
+**open** and shows the reason **in the panel**, and no rule is created. Add to the same item:
+choosing an application already on the list is refused the same way.
