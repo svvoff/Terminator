@@ -1,406 +1,302 @@
-# Отчёт об исполнении — TASK-006, раунд 5 (поток `-popover`)
+# Отчёт об исполнении — TASK-006, раунд 6 (поток `-popover`)
 
 ## Задача
 
-TASK-006, амендмент 6: панель добавления приложения проигрывает гонку за фокус. Два шва
-(показ панели следующим витком рантайма; закрытие поповера до показа панели) плюс
-обязательное инструментирование лог-строкой непосредственно перед `runModal()`.
+TASK-006, амендмент 7: строки списка перестают двигаться. Порядок строк становится
+**стабильным**: `bundleIdentifier` по возрастанию и больше ничем. Убираются `sortRank`,
+бакетизация (запущенные / без экземпляра / выключенные) и сортировка по остатку. Четыре
+теста вычёркиваются, три добавляются; число тестов идёт с 83 на 82.
 
 ## Кратко
 
-`addApplication()` разделён на два витка: на текущем остаются закрытие поповера и
-`NSApp.activate()`, всё остальное — от конструирования `NSOpenPanel` до `apply(_:)` — уехало
-в `DispatchQueue.main.async` целиком и без изменений по существу. Поповер закрывается
-`NSApp.keyWindow?.close()`. Перед `runModal()` пишется одна строка в существующий
-`popoverLog` с `appActive`, наличием и уровнем key-окна и уровнем самой панели.
+Компаратор `PopoverViewModel.precedes` и свойство `PopoverRow.sortRank` удалены целиком.
+Сортировка строк — одна строка кода: `unsorted.sorted { $0.bundleIdentifier < $1.bundleIdentifier }`.
+Второго ключа не осталось; ни один бакет не уцелел.
 
-Изменён ровно один файл. `panel.level` не поднят. Порядок строк списка не тронут.
-Валидатор раунда 3, его сильная ссылка, оба запасных гарда, настройка панели и резолв имён
-раунда 4 — не тронуты.
+Изменено ровно два файла, оба разрешены пакетом. Экземпляры внутри строки по-прежнему идут по
+`SessionKey` — эта сортировка не тронута. `Sources/Terminator/`, `Sources/TerminatorAppKit/`,
+формат `config.json` не тронуты.
+
+82 теста в 8 сьютах, ноль `warning:` в debug и release, `check-forbidden.sh` EXIT=0,
+`./build.sh` EXIT=0.
 
 ## Изменённые файлы
 
 | Файл | Что изменено |
 |---|---|
-| `Sources/Terminator/PopoverModel.swift` | `addApplication()` разделён на два витка; добавлены `dismissPopoverWindow()` и `presentAddApplicationPanel()`; добавлена лог-строка перед `runModal()` |
+| `Sources/TerminatorCore/PopoverViewModel.swift` | удалён `private static func precedes`; удалено `PopoverRow.sortRank`; сортировка строк заменена на `bundleIdentifier` по возрастанию; комментарий о порядке переписан; доккомментарий `soonestRemaining` перестал называть его ключом сортировки |
+| `Tests/TerminatorCoreTests/PopoverViewModelTests.swift` | минус четыре теста порядка, плюс три теста стабильности; добавлены две фикстуры bundle id (`textEdit`, `printCenter`) |
 
-Больше ни одного файла (кроме этого отчёта) не тронуто. Второй файл не понадобился.
-
-## Дифф — дословно
+## Дифф дословно
 
 ```diff
-diff --git a/Sources/Terminator/PopoverModel.swift b/Sources/Terminator/PopoverModel.swift
-index 5ba32bb..8aa8e07 100644
---- a/Sources/Terminator/PopoverModel.swift
-+++ b/Sources/Terminator/PopoverModel.swift
-@@ -370,9 +370,61 @@ final class PopoverModel {
-     /// Панель отфильтрована по типу содержимого `.application`. Это единственный механизм
-     /// добавления и он покрывает оба случая — запущенное приложение и незапущенное, — а
-     /// список процессов не покрыл бы второй вовсе (findings §10).
-+    ///
-+    /// **Метод разделён на два витка рантайма, и это не косметика.** `NSApp.activate()` —
-+    /// *запрос* активации у оконного сервера, а не смена состояния: сама активация приезжает
-+    /// более поздним витком (ровно поэтому существует
-+    /// `NSApplicationDidBecomeActiveNotification`). `runModal()`, вызванный тем же витком,
-+    /// блокирует его — и панель показывается **до** того, как активация доехала. Гонка: иногда
-+    /// успевает одно, иногда другое, и один и тот же неизменный код то работает, то нет.
-+    ///
-+    /// Поэтому на текущем витке остаются ровно два действия — закрыть поповер и попросить
-+    /// активацию, — а всё остальное уходит следующим витком.
-     func addApplication() {
-         notice = nil
+diff --git a/Sources/TerminatorCore/PopoverViewModel.swift b/Sources/TerminatorCore/PopoverViewModel.swift
+@@ -48,22 +48,27 @@ public struct PopoverViewModel: Equatable, Sendable {
+             )
+         }
  
-+        // Окно `MenuBarExtra` — key, пока поповер открыт, и живёт на уровне статус-бара, то
-+        // есть выше обычного окна панели. Активация приложения этого конкурента не убирает:
-+        // убирает только закрытие. Надежда «перебить уровнем» здесь не рассматривается —
-+        // конкурент устраняется совсем.
-+        dismissPopoverWindow()
-+
-+        // Приложение `.accessory` (`LSUIElement=true`, findings §7) не активируется ничем в
-+        // дереве: открытие поповера даёт временное key-окно, но не активацию. Модальная панель
-+        // неактивного приложения получает окно, которое не является key, и первые клики уходят
-+        // на активацию окна вместо выбора строки. `NSApp.activate()` — без
-+        // `ignoringOtherApps:`, устаревшего с macOS 14, а таргет ровно `.macOS(.v14)`.
-+        //
-+        // Вызов необходим и ошибкой никогда не был — он был недостаточен в одиночку.
-+        NSApp.activate()
-+
-+        // Следующий виток: к моменту показа панели закрытие поповера уже обработано, а запрос
-+        // активации успел доехать.
-+        DispatchQueue.main.async {
-+            self.presentAddApplicationPanel()
-+        }
-+    }
-+
-+    /// Закрытие окна поповера перед показом панели.
-+    ///
-+    /// У приложения нет других окон: сцена одна — `MenuBarExtra`, — и пока поповер открыт,
-+    /// key-окно только он. Отсюда и форма: закрывается ровно текущее key-окно, а не окно,
-+    /// найденное перебором по признаку.
-+    ///
-+    /// `close()`, а не `orderOut(_:)`: закрытие рассылает `willCloseNotification`, по которому
-+    /// SwiftUI приводит в порядок собственное состояние показа. Окно, убранное `orderOut`,
-+    /// осталось бы «показанным» с точки зрения сцены, и следующее нажатие на пункт меню-бара
-+    /// только переключило бы флаг, не открыв поповер.
-+    ///
-+    /// Это **единственное** место, где временное окно поповера трогается, и трогается оно
-+    /// ровно одним способом — закрывается. Ни закрепления, ни перестилизации, ни пересоздания.
-+    private func dismissPopoverWindow() {
-+        NSApp.keyWindow?.close()
-+    }
-+
-+    /// Вторая половина `addApplication()`: настройка панели, показ, разбор выбора и запись.
-+    /// Исполняется отдельным витком рантайма — см. доку `addApplication()`.
-+    private func presentAddApplicationPanel() {
-         let panel = NSOpenPanel()
-         panel.allowedContentTypes = [.application]
-         panel.allowsMultipleSelection = false
-@@ -387,12 +439,26 @@ final class PopoverModel {
-         addPanelValidator.identifiersOnTheList = Set(config.rules.keys)
-         panel.delegate = addPanelValidator
+-        self.rows = unsorted.sorted(by: PopoverViewModel.precedes)
++        // Порядок строк — по `bundleIdentifier` по возрастанию и больше ничем: см. ниже.
++        self.rows = unsorted.sorted { $0.bundleIdentifier < $1.bundleIdentifier }
+         self.banner = quarantine.map(PopoverBanner.init(_:))
+     }
  
--        // Приложение `.accessory` (`LSUIElement=true`, findings §7) не активируется ничем в
--        // дереве: открытие поповера даёт временное key-окно, но не активацию. Модальная панель
--        // неактивного приложения получает окно, которое не является key, и первые клики уходят
--        // на активацию окна вместо выбора строки. `NSApp.activate()` — без
--        // `ignoringOtherApps:`, устаревшего с macOS 14, а таргет ровно `.macOS(.v14)`.
--        NSApp.activate()
-+        // Инструментирование, а не украшение: «первый клик не выбирает» — дефект, стоивший
-+        // трёх раундов правок вслепую, и следующее решение принимается по этой строке, а не по
-+        // четвёртой догадке. Пишется непосредственно перед `runModal()`, то есть уже после
-+        // закрытия поповера и после витка, которым должна была доехать активация.
-+        //
-+        // Три факта и все три нужны порознь. `appActive=false` означает, что активация не
-+        // доехала (шов 1 не сработал). Оставшееся key-окно на уровне статус-бара
-+        // (`NSWindow.Level.statusBar.rawValue` = 25) означает, что поповер закрыть не удалось
-+        // (шов 2 не сработал). `panelLevel` отвечает на отложенный вопрос — хватает ли швов
-+        // без подъёма уровня самой панели; поднимать его эта карточка запрещает, измерить —
-+        // нет. Значения снимаются в локальные переменные: интерполяция `Logger` принимает
-+        // `@autoclosure`, и состояние приложения читается здесь, а не когда-то потом.
-+        let appIsActive = NSApp.isActive
-+        let keyWindow = NSApp.keyWindow
-+        let keyWindowPresence = keyWindow == nil ? "none" : "present"
-+        let keyWindowLevel = keyWindow.map { String($0.level.rawValue) } ?? "none"
-+        let panelLevel = panel.level.rawValue
-+        popoverLog.notice(
-+            "add-app panel about to run modal: appActive=\(appIsActive, privacy: .public) keyWindow=\(keyWindowPresence, privacy: .public) keyWindowLevel=\(keyWindowLevel, privacy: .public) panelLevel=\(panelLevel, privacy: .public)"
-+        )
+     // MARK: - Порядок строк
  
-         guard panel.runModal() == .OK, let url = panel.url else { return }
+-    /// Порядок: сначала правила с запущенными экземплярами по возрастанию **минимального**
+-    /// остатка, затем правила без запущенных экземпляров, затем выключенные. Ничьи — по
+-    /// `bundleIdentifier` по возрастанию, чтобы порядок был детерминирован.
+-    private static func precedes(_ lhs: PopoverRow, _ rhs: PopoverRow) -> Bool {
+-        if lhs.sortRank != rhs.sortRank { return lhs.sortRank < rhs.sortRank }
+-        if let left = lhs.soonestRemaining, let right = rhs.soonestRemaining, left != right {
+-            return left < right
+-        }
+-        return lhs.bundleIdentifier < rhs.bundleIdentifier
+-    }
++    // Порядок строк — **стабильный**: `bundleIdentifier` по возрастанию, второго ключа нет.
++    //
++    // Бакеты (запущенные / без экземпляра / выключенные) и сортировка по остатку убраны
++    // намеренно: все их входы меняются при открытом поповере — отсчёт тикает каждую секунду,
++    // приложение запускается и выходит, тумблер щёлкает, — и строка уезжала из-под курсора
++    // ровно тогда, когда правило собирались выключить. Уцелевший бакет — это бакет, между
++    // которыми строка может переехать, поэтому вторичного признака не остаётся вовсе.
++    //
++    // Ключ — bundle id, а не имя приложения: имя резолвится из окружения, и порядок стал бы
++    // функцией того, что установлено на машине и на каком языке система. Bundle id уже
++    // является ключом сопоставления (findings §10) и не меняется никогда. Сравнение —
++    // обычное строковое, поэтому `com.apple.TextEdit` идёт перед `com.apple.printcenter`.
++    //
++    // Ключи `config.rules` уникальны, так что порядок полный и детерминированный.
+ 
+     // MARK: - Остаток
+ 
+@@ -161,16 +166,11 @@ public struct PopoverRow: Equatable, Sendable {
+         self.instances = instances
+     }
+ 
+-    /// Ключ сортировки: минимальный остаток среди экземпляров правила.
++    /// Минимальный остаток среди экземпляров правила. На порядок строк **не влияет**:
++    /// порядок — это bundle id и ничто другое.
+     public var soonestRemaining: TimeInterval? {
+         instances.map(\.remaining).min()
+     }
+-
+-    /// Группа порядка: 0 — идут отсчёты, 1 — включено, но не запущено, 2 — выключено.
+-    var sortRank: Int {
+-        if !isEnabled { return 2 }
+-        return instances.isEmpty ? 1 : 0
+-    }
+ }
 ```
 
-Дифф на этом заканчивается: ниже `runModal()` не изменена ни одна строка — оба запасных
-гарда, конструирование правила и `apply(_:)` уехали во второй метод целиком, без правок.
-Это видно по тому, что второй хунк заканчивается на `guard panel.runModal()` и третьего
-хунка нет.
+Тестовый файл — полный дифф в `git diff Tests/TerminatorCoreTests/PopoverViewModelTests.swift`;
+ниже он разобран поимённо. Кроме тестов порядка и двух новых фикстур bundle id в файле не
+изменено ничего: тесты формата остатка, пустого состояния, двух экземпляров, редактора лимита,
+баннера карантина и красных глаз остались дословно теми же.
 
 ## Изменения поведения
 
-### Шов 1 — панель показывается другим витком
+- Строки поповера идут по `bundleIdentifier` по возрастанию. Порядок не зависит ни от остатка
+  времени, ни от того, запущено ли приложение, ни от того, включено ли правило.
+- `PopoverRow.sortRank` больше не существует (был `internal`, наружу модуля не выходил —
+  ломать в `Sources/Terminator/` нечего, что подтверждено грепом: единственным его
+  потребителем был `precedes`).
+- `PopoverRow.soonestRemaining` **сохранён**: он публичный и его проверяет уцелевший тест
+  `ruleWithTwoRunningInstancesYieldsTwoRemainingTimes` (`row.soonestRemaining == 180`).
+  Удаление потребовало бы правки теста, не названного пакетом. Изменён только его
+  доккомментарий, который называл его ключом сортировки и стал бы ложью.
+- Видимое следствие, названное в амендменте: `com.apple.TextEdit` стоит перед
+  `com.apple.printcenter` — заглавная `T` предшествует строчной `p` при строковом сравнении.
+  Это зафиксировано тестом, а не оставлено на удачу.
 
-`addApplication()` теперь делает на текущем витке ровно три вещи: сбрасывает `notice`,
-закрывает поповер, просит активацию. Всё остальное — конструирование `NSOpenPanel`, его
-настройка, снимок списка для валидатора, `panel.delegate`, лог-строка, `runModal()`, оба
-запасных гарда, конструирование `Rule` и `apply(_:)` — исполняется телом
-`presentAddApplicationPanel()`, вызванного из `DispatchQueue.main.async`.
+## Тесты: четыре вычеркнуты, три добавлены
 
-Виток, на котором вызван `NSApp.activate()`, теперь **не** блокируется `runModal()`: он
-завершается, рантайм успевает обработать и закрытие окна поповера, и приезд активации, и
-только следующим витком показывается панель.
+Вычеркнуты (все четыре запирали убираемое поведение):
 
-`DispatchQueue.main.async` взят дословно из пакета, а не заменён на `Task { @MainActor in }`
-или на `RunLoop.main.perform`. Замечание по конкурентности: на исполняемом таргете стоит
-`.defaultIsolation(MainActor.self)` (`Package.swift`), поэтому замыкание выводится
-MainActor-изолированным и захват `self` компилируется без `assumeIsolated`, без
-`@unchecked Sendable` и без `@preconcurrency` — ни одна из трёх запрещённых заглушек не
-понадобилась. Ноль предупреждений это подтверждает.
+| Тест | Что запирал |
+|---|---|
+| `rowsSortAscendingByRemainingTime` | сортировку по остатку |
+| `rulesWithNoRunningInstanceSortAfterRunningOnes` | бакет «без экземпляра» |
+| `disabledRulesSortLast` | бакет «выключено» |
+| `equalRemainingTimesBreakTieByBundleIdentifier` | поглощён: при одном ключе ломать нечего |
 
-### Шов 2 — чем именно закрывается поповер и почему так
+Добавлены:
+
+| Тест | Что утверждает |
+|---|---|
+| `rowsSortByBundleIdentifierAscending` | порядок — bundle id по возрастанию, и ничто другое на него не влияет |
+| `rowOrderDoesNotChangeAsRemainingTimeChanges` | те же правила при двух разных `now` дают один и тот же порядок |
+| `rowOrderDoesNotChangeWhenARuleIsDisabledOrItsAppExits` | выключение правила и выход его приложения — каждое по отдельности — порядок не меняют |
+
+## Чем новые тесты ловят нестабильность, а не только ключ
+
+Требование пакета: тест на один ключ прошёл бы и на реализации, которая всё ещё переупорядочивает
+по другому входу. Проверено **мутационно** — реализация временно ломалась, тесты запускались,
+затем файл восстанавливался из копии (итоговое дерево содержит принятую реализацию; см. «Проверка
+скоупа»).
+
+**Мутация 1 — прежняя реализация целиком** (бакет `sortRank`, затем остаток, затем bundle id).
+Падают все три новых теста, 9 issues:
+
+```
+✘ rowsSortByBundleIdentifierAscending — 2 issues
+  ["ru.keepcoder.Telegram", "com.apple.TextEdit", "com.tinyspeck.slackmacgap",
+   "com.apple.printcenter", "com.apple.Safari"] != ожидаемого возрастающего порядка
+✘ rowOrderDoesNotChangeAsRemainingTimeChanges — 4 issues, в том числе строка 118:
+  late  → ["com.tinyspeck.slackmacgap", "ru.keepcoder.Telegram", "com.apple.Safari"]
+  early → ["ru.keepcoder.Telegram", "com.tinyspeck.slackmacgap", "com.apple.Safari"]
+✘ rowOrderDoesNotChangeWhenARuleIsDisabledOrItsAppExits — 3 issues
+✘ Test run with 13 tests in 1 suite failed after 0.003 seconds with 9 issues.
+```
+
+Обрати внимание на строку 118: она сравнивает `late` с `early`, а не с литералом. Это
+утверждение о **стабильности**, и оно падает само по себе, независимо от того, какой порядок
+считать правильным.
+
+**Мутация 2 — реализация, у которой ключ правильный, а стабильность нет.** Сортировка по
+`bundleIdentifier`, но строки с истёкшим остатком поднимаются наверх:
 
 ```swift
-private func dismissPopoverWindow() {
-    NSApp.keyWindow?.close()
-}
+func expired(_ row: PopoverRow) -> Int { (row.soonestRemaining ?? 1) == 0 ? 0 : 1 }
 ```
 
-**Что закрывается.** У приложения ровно одна сцена — `MenuBarExtra` (`TerminatorApp.swift`),
-других окон не создаётся нигде. Пока поповер открыт, он и есть key-окно: это записано в
-комментарии, оставшемся от раунда 2, — «открытие поповера даёт временное key-окно, но не
-активацию». `addApplication()` вызывается только из строки этого поповера, то есть в момент
-вызова key-окно существует и это он. Поэтому адресация «текущее key-окно» точна, а перебор
-`NSApp.windows` по признаку уровня или класса был бы догадкой о внутреннем устройстве
-`MenuBarExtra` — ровно тем, чего амендмент велит избегать.
-
-**Почему `close()`, а не `orderOut(_:)`.** `close()` рассылает `willCloseNotification`, по
-которому SwiftUI приводит в согласованность собственное состояние показа сцены. Окно,
-убранное `orderOut(_:)`, для сцены осталось бы показанным, и следующее нажатие на пункт
-меню-бара только сняло бы внутренний флаг, не открыв поповер, — то есть открывать пришлось
-бы двумя нажатиями. Это первый пункт, который стоит проверить в ручном чеклисте (см. ниже).
-
-**Почему не `performClose(_:)`.** Он моделирует нажатие кнопки закрытия и на окне без
-такой кнопки даёт системный звук вместо закрытия.
-
-**Границы.** Поповер только закрывается. Он не закрепляется, не перестилизуется, не
-пересоздаётся, `MenuBarExtra` и `TerminatorApp.swift` не тронуты вовсе.
-
-### Инструментирование — что попадёт в лог-строку
-
-Категория — существующий `popoverLog` (`TerminatorLog.Category.store`), уровень `.notice`,
-`privacy: .public` на каждой из четырёх интерполяций. Место — непосредственно перед
-`runModal()`, то есть уже после закрытия поповера и после витка активации.
-
-Формат строки:
+Результат:
 
 ```
-add-app panel about to run modal: appActive=<true|false> keyWindow=<present|none> keyWindowLevel=<Int|none> panelLevel=<Int>
+✔ Test rowsSortByBundleIdentifierAscending() passed after 0.001 seconds.
+✔ Test rowOrderDoesNotChangeWhenARuleIsDisabledOrItsAppExits() passed after 0.001 seconds.
+✘ Test rowOrderDoesNotChangeAsRemainingTimeChanges() recorded an issue at :118:9:
+  late  → ["com.tinyspeck.slackmacgap", "ru.keepcoder.Telegram", "com.apple.Safari"]
+  early → ["com.apple.Safari", "com.tinyspeck.slackmacgap", "ru.keepcoder.Telegram"]
+✘ Test run with 13 tests in 1 suite failed after 0.002 seconds with 2 issues.
 ```
 
-| Поле | Что значит | Как читать |
-|---|---|---|
-| `appActive` | `NSApp.isActive` | `false` — активация не доехала к моменту показа: шов 1 не сработал |
-| `keyWindow` | остался ли вообще key-окном кто-то | `none` при `appActive=false` — приложение неактивно и key-окна нет; `present` — читать следующее поле |
-| `keyWindowLevel` | `NSWindow.Level.rawValue` оставшегося key-окна | `25` (`.statusBar`) — поповер закрыть не удалось: шов 2 не сработал; `0` (`.normal`) — key у обычного окна |
-| `panelLevel` | `panel.level.rawValue` до `runModal()` | измерение для отложенного вопроса о подъёме уровня; значение только читается |
+Это и есть требуемое доказательство: тест на ключ (№1) **проходит** на нестабильной реализации,
+а ловит её только тест №2. Один ключ проверить недостаточно, и тесты это учитывают.
 
-`panelLevel` — единственное поле сверх обязательного минимума амендмента («at minimum»).
-Оно добавлено осознанно и ровно по причине, названной в амендменте: если панель подведёт в
-четвёртый раз, решение о подъёме уровня должно приниматься по измерению, а не по догадке, а
-без записанного исходного уровня такое решение снова было бы слепым. `panel.level`
-**только читается**; ни одного присваивания уровню в диффе нет.
+Как устроены новые тесты, чтобы это работало:
 
-DEC-004 здесь ни при чём: это строка о состоянии окон, а не объявление продукта перед
-закрытием чужого приложения.
+1. `rowsSortByBundleIdentifierAscending` — пять правил, и каждый прежний вход спорит с ответом:
+   `safari` выключен (прежде уходил последним), `printCenter` не запущен (прежде уходил после
+   запущенных), у `telegram` наименьший остаток (прежде уходил первым). Пара
+   `com.apple.TextEdit` / `com.apple.printcenter` дополнительно запирает **обычное строковое**
+   сравнение: регистронезависимое или локализованное дало бы обратный порядок.
+2. `rowOrderDoesNotChangeAsRemainingTimeChanges` — те же правила и те же сессии при `now: t(0)`
+   и `now: t(200)`. Дедлайны подобраны так, что во второй момент оба остатка схлопываются в
+   ноль, то есть **относительный порядок по остатку реально меняется**, и на прежней реализации
+   строки переставлялись. Сравнение идёт `late` против `early`, а не против литерала. Отсчёт
+   действительно сдвинулся, и это утверждается отдельно:
+   `early → [nil, 100, 50]`, `late → [nil, 0, 0]`.
+3. `rowOrderDoesNotChangeWhenARuleIsDisabledOrItsAppExits` — базовая модель и две производные,
+   каждая отличается от неё **ровно одним входом**: у `safari` щёлкнут тумблер, либо `safari`
+   вышел (его сессия убрана). Обе сравниваются с базовым порядком. Дополнительно утверждается,
+   что вход действительно изменился (`isEnabled == false`, `instances.isEmpty == true`), — иначе
+   тест был бы вакуумным.
 
 ## Доказательства валидации
 
 | Команда | Результат | Вывод |
 |---|---|---|
-| `swift package clean && swift build` | EXIT=0, `warning:` = **0** | `Build complete! (8.45s)` |
-| `swift build -c release` | EXIT=0, `warning:` = **0** | `Build complete! (8.13s)` |
-| `swift test` | EXIT=0, `warning:` = **0** | `Test run with 83 tests in 8 suites passed after 0.119 seconds.` |
-| `scripts/check-forbidden.sh` | EXIT=0 | `OK:    запрещённых конструкций не найдено` |
-| `./build.sh` | EXIT=0, `warning:` = **0** | терминальный `codesign --verify --strict` без вывода |
+| `swift package clean && swift build` | EXIT=0 | `Build complete! (8.50s)`, `warning:` — **0 строк** |
+| `swift package clean && swift build -c release` | EXIT=0 | `Build complete! (8.53s)`, `warning:` — **0 строк** |
+| `swift test` | EXIT=0 | `Test run with 82 tests in 8 suites passed after 0.143 seconds.`, `✘` — 0, `warning:` — 0 |
+| `./scripts/check-forbidden.sh` | EXIT=0 | `OK: запрещённых конструкций не найдено` |
+| `./build.sh` | EXIT=0 | `codesign --verify --strict` пройден; `designated requirement: identifier "com.svvoff.terminator" and certificate leaf = H"74d582911cd0b2c7ff3961af4bb0561efd6a8f24"` |
 
-### `swift package clean && swift build`
+Счётчики `warning:` считались как `grep -c 'warning:'` по полному логу каждой команды, а не на
+глаз. Обе сборки — после `swift package clean`, то есть полные, а не инкрементальные (release
+компилирует три модуля целиком под WMO).
 
-```
-EXIT_DEBUG=0
-WARNINGS_DEBUG=0
-[42/45] Compiling Terminator TerminatorApp.swift
-[42/45] Write Objects.LinkFileList
-[43/45] Linking Terminator
-[44/45] Applying Terminator
-Build complete! (8.45s)
-```
-
-Сборка отладочной конфигурации сделана **после `swift package clean`** намеренно: без него
-`swift build` отдаёт кэш и счётчик `warning:` ничего не доказывал бы.
-
-### `swift build -c release`
+Три новых теста в прогоне поимённо:
 
 ```
-EXIT_RELEASE=0
-WARNINGS_RELEASE=0
-[6/8] Compiling TerminatorAppKit EngineLogRenderer.swift
-[7/9] Compiling Terminator PopoverModel.swift
-[7/9] Write Objects.LinkFileList
-[8/9] Linking Terminator
-Build complete! (8.13s)
+✔ Test rowsSortByBundleIdentifierAscending() passed after 0.051 seconds.
+✔ Test rowOrderDoesNotChangeAsRemainingTimeChanges() passed after 0.051 seconds.
+✔ Test rowOrderDoesNotChangeWhenARuleIsDisabledOrItsAppExits() passed after 0.051 seconds.
 ```
 
-### `swift test`
+Четыре вычеркнутых в прогоне не встречаются вовсе (грепом по логу: ни одной строки с
+`rowsSortAscendingByRemainingTime`, `rulesWithNoRunningInstance`, `disabledRulesSortLast`,
+`equalRemainingTimesBreakTie`).
 
-```
-EXIT_TEST=0
-Test Suite 'All tests' passed at 2026-08-31 15:21:57.197.
-✔ Suite "Движок наблюдения" passed after 0.077 seconds.
-✔ Suite "Вью-модель поповера" passed after 0.077 seconds.
-✔ Suite "Доменная модель правила" passed after 0.077 seconds.
-✔ Suite "Автозапуск: содержимое plist и отображение статуса" passed after 0.077 seconds.
-✔ Suite "Учёт фокуса" passed after 0.106 seconds.
-✔ Suite "Формат конфига на диске" passed after 0.107 seconds.
-✔ Suite "Хранилище конфига: карантин, уборка, путь" passed after 0.111 seconds.
-✔ Suite "Долговечная запись" passed after 0.119 seconds.
-✔ Test run with 83 tests in 8 suites passed after 0.119 seconds.
-WARNINGS_TEST=0
-```
+**Число тестов: 83 → 82.** Минус четыре, плюс три. Сьютов по-прежнему 8. Сьют «Вью-модель
+поповера» — 13 тестов.
 
-**83 теста в 8 сьютах** — ровно столько, сколько было в базовом состоянии. Ни один тест не
-добавлен, не удалён и не заглушён.
-
-### `scripts/check-forbidden.sh`
-
-```
-EXIT_FORBIDDEN=0
-OK:    запрещённых конструкций не найдено
-```
-
-### `./build.sh`
-
-```
-EXIT_BUILDSH=0
-WARNINGS_BUILDSH=0
---- swift build -c debug ---
-[0/1] Planning build
-Building for debugging...
-[0/3] Write swift-version--58304C5D6DBC2206.txt
-Build complete! (0.12s)
---- assemble build/Terminator.app ---
---- codesign --force --sign "Terminator Dev" (последняя мутация бандла) ---
-build/Terminator.app: replacing existing signature
---- codesign --verify --strict (терминальный шаг) ---
-```
-
-Терминальный шаг отработал молча и с нулевым кодом возврата; designated requirement —
-`identifier "com.svvoff.terminator" and certificate leaf = H"74d58291…"`, то есть подпись
-`Terminator Dev`, не ad-hoc.
-
-Счётчики `warning:` получены `grep -c "warning:"` по полному выводу каждой команды.
-
-## Acceptance criteria
-
-Оцениваются только критерии, затронутые амендментом 6; остальные приняты в раундах 1–4 и
-кодом этого раунда не тронуты.
+## Acceptance criteria (амендмент 7)
 
 | Критерий | Статус | Чем подтверждён |
 |---|---|---|
-| Шов 1: всё от `NSOpenPanel` и далее исполняется отдельным витком; активация и закрытие поповера — на текущем | выполнен | дифф: тело `presentAddApplicationPanel()` вызывается из `DispatchQueue.main.async` |
-| Шов 2: поповер закрывается до показа панели; только закрывается | выполнен | дифф: `dismissPopoverWindow()` → `NSApp.keyWindow?.close()`, других правок окна нет |
-| Лог-строка перед `runModal()`, `popoverLog`, `privacy: .public` на каждой интерполяции, с `NSApp.isActive`, наличием key-окна и его уровнем | выполнен | дифф, раздел «что попадёт в лог-строку» |
-| `NSApp.activate()` сохранён | выполнен | дифф: вызов на месте, перенесён на текущий виток вместе с комментарием |
-| Валидатор раунда 3, сильная ссылка `addPanelValidator`, оба запасных гарда — без изменений | выполнен | в диффе нет ни одной строки из `AddApplicationValidator` и из обоих гардов |
-| Настройка панели (`allowedContentTypes`, `directoryURL`, `prompt`, `message`) — без изменений | выполнен | строки настройки в диффе только как контекст |
-| Резолв имён раунда 4 — без изменений | выполнен | `resolveDisplayNames()` в диффе отсутствует |
-| Порядок строк списка — без изменений | выполнен | порядок считает `PopoverViewModel` в ядре; ядро не тронуто |
-| `panel.level` не поднят | выполнен | уровень только читается в лог-строку; присваиваний нет |
-| Ноль `warning:` в debug и release | выполнен | `WARNINGS_DEBUG=0`, `WARNINGS_RELEASE=0` |
-| 83 теста в 8 сьютах | выполнен | вывод `swift test` |
-| Панель открывается по Add App…, и **первый** клик выбирает приложение — на первом нажатии после запуска и на последующем в той же сессии | **требует человека** | приложение не запускалось |
+| Порядок — `bundleIdentifier` по возрастанию | выполнен | `rowsSortByBundleIdentifierAscending` |
+| Ни `sortRank`, ни бакетов, ни вторичного ключа | выполнен | дифф: `precedes` и `sortRank` удалены; греп по `Sources`/`Tests` даёт ноль вхождений `sortRank` и `precedes` |
+| Экземпляры внутри строки — по `SessionKey` | выполнен | строка `PopoverViewModel.swift:41` не тронута; `ruleWithTwoRunningInstancesYieldsTwoRemainingTimes` (`instances.map(\.pid) == [501, 777]`) зелёный |
+| Не по имени приложения | выполнен | имя в `TerminatorCore` не существует вовсе; `PopoverRow` его не несёт |
+| Четыре теста вычеркнуты, три добавлены | выполнен | таблица выше, поимённо |
+| 82 теста | выполнен | `Test run with 82 tests in 8 suites passed` |
+| Ноль `warning:` в debug и release | выполнен | `grep -c 'warning:'` = 0 на обоих полных логах |
+| Формат `config.json` не изменён | выполнен | `ConfigFormat`, `ConfigStore`, модель правил не тронуты; дифф касается только вью-модели и её тестов |
+| Пункт 13 чеклиста (порядок не меняется от тика, запуска/выхода, тумблера) | **требует человека** | см. «Не запускалось» |
 
 ## Не запускалось
 
-**Приложение не запускалось** — пакет это запрещает. Ни одного запуска
-`build/Terminator.app/Contents/MacOS/Terminator`, ни одного обращения к `/usr/bin/log`, ни
-одной записи в `~/Library/`.
+**Приложение не запускалось** — пакет это прямо запрещает, и раунд в этом не нуждается:
+сортировка живёт в чистом ядре и полностью покрыта юнит-тестами.
 
-**Юнит-теста нет и быть не может.** Ни `NSOpenPanel`, ни `NSApp.activate()`, ни уровни окон,
-ни key-статус headless не воспроизводятся; тест на них был бы тестом заглушки, а не
-поведения. Это записано в пакете и в амендменте 6.
+Человеку остаётся пункт 13 чеклиста в его переписанной амендментом 7 форме — открыть поповер и
+убедиться глазами, что порядок строк не меняется:
 
-Остаточный риск честный: оба шва и лог-строка проверены только компилятором и гейтами.
-Работоспособность самой панели проверяется человеком.
+1. пока тикает отсчёт (подержать поповер открытым минуту с идущим отсчётом);
+2. когда наблюдаемое приложение запускается и когда выходит;
+3. когда щёлкается тумблер правила — строка должна остаться под курсором.
 
-### Что должен проверить человек
+Дополнительно стоит взглянуть на видимое следствие, о котором автор предупреждён: порядок
+выглядит произвольным, потому что сортируется bundle id, а на первой строке написано имя
+приложения.
 
-1. `./build.sh && ./build/Terminator.app/Contents/MacOS/Terminator`.
-2. **Первое** нажатие Add App… после запуска: панель открывается, поповер при этом
-   закрывается, и **первый** клик по приложению в панели его выбирает (не тратится на
-   активацию окна).
-3. Отмена панели, затем **повторное** нажатие Add App… в той же сессии: пункт меню-бара
-   открывает поповер **одним** нажатием (это проверка того, что `close()` не рассинхронизовал
-   состояние сцены), панель снова открывается и снова первый клик выбирает.
-4. Обе лог-строки прочитать:
-   `/usr/bin/log show --predicate 'subsystem == "com.svvoff.terminator" AND category == "store"' --last 10m --info`
-   — или в реальном времени
-   `/usr/bin/log stream --predicate 'subsystem == "com.svvoff.terminator" AND category == "store"'`.
-   Ожидается `appActive=true keyWindow=none|present keyWindowLevel=…`; `keyWindowLevel=25`
-   означал бы, что поповер остался, `appActive=false` — что активация не доехала.
-5. Добавленное правило появилось в списке после закрытия панели (запись уехала на второй
-   виток вместе с `apply(_:)`).
+Остаточный риск низкий: все три пункта — ровно то, что утверждают три новых теста, и вью
+(`PopoverView`) рисует порядок, который ему дали, без собственной сортировки.
 
 ## Проверка скоупа
 
 ```
-$ git status --short
- M Sources/Terminator/PopoverModel.swift
+$ git status --porcelain
+ M Sources/TerminatorCore/PopoverViewModel.swift
+ M Tests/TerminatorCoreTests/PopoverViewModelTests.swift
  M docs/ai/handoff/current-task-packet-popover.md
  M docs/product/backlog/tasks/in-progress/TASK-006-menu-bar-popover.md
+
+$ git diff --stat Sources/TerminatorCore/PopoverViewModel.swift Tests/TerminatorCoreTests/PopoverViewModelTests.swift
+ Sources/TerminatorCore/PopoverViewModel.swift      |  36 +++----
+ .../PopoverViewModelTests.swift                    | 120 ++++++++++++++-------
+ 2 files changed, 97 insertions(+), 59 deletions(-)
 ```
 
-Правки в пакете и в карточке — работа оркестратора, существовавшая до начала этого раунда; я
-их не касался. Мною изменён ровно один файл продакшн-кода —
-`Sources/Terminator/PopoverModel.swift` — плюс этот отчёт.
+Изменены исполнителем ровно два файла — те два, что разрешены пакетом, плюс этот отчёт.
+`current-task-packet-popover.md` и карточку TASK-006 правил оркестратор до начала раунда;
+исполнитель их не трогал. HEAD — `0775d01`.
 
-Не тронуто: `Sources/TerminatorCore/` целиком, `Sources/TerminatorAppKit/` целиком,
-`Sources/Terminator/TerminatorApp.swift`, `Sources/Terminator/PopoverView.swift`,
-`Package.swift`, `Packaging/Info.plist`, `build.sh`, подпись, keychain, путь quit, код Apple
-Events, расчёт дедлайна, модель правил, всё, что относится к учёту фокуса (TASK-007),
-`docs/` кроме этого отчёта, `~/Library/`.
+Запрещённые зоны не тронуты: `Sources/Terminator/` (вью, `PopoverModel`, резолв имён,
+валидатор панели, лог-строка раунда 5), `Sources/TerminatorAppKit/`, `Package.swift`,
+`Packaging/Info.plist`, `build.sh`, подпись, keychain, путь quit, Apple Events, расчёт дедлайна,
+модель правил, `ConfigStore`, `ConfigFormat`, код учёта фокуса (TASK-007). В `~/Library/`
+ничего не писалось. Приложение не запускалось. `swift run` не вызывался.
 
-Второй файл не понадобился: закрытие поповера выражается средствами AppKit из модели и не
-требует ни биндинга из сцены, ни правки `TerminatorApp.swift`.
+Третий файл не понадобился.
 
 ## Риски
 
-1. **Адресация окна через `NSApp.keyWindow`.** Если в момент вызова key-окном окажется не
-   поповер, закроется не то окно. Сегодня это невозможно — сцена одна и других окон нет, —
-   но появление второго окна в будущем сделает эту форму неверной. Лог-строка это поймает:
-   она печатает наличие и уровень оставшегося key-окна.
-2. **`close()` и состояние сцены SwiftUI.** Ожидание — что SwiftUI синхронизирует состояние
-   показа по `willCloseNotification`. Если это не так, симптом будет ровно один и заметный:
-   поповер после добавления откроется только со второго нажатия. Пункт 3 чеклиста написан
-   именно на этот случай.
-3. **Один виток — достаточно ли.** `DispatchQueue.main.async` даёт ровно один виток. Если
-   активации нужен не один, `appActive=false` в логе покажет это прямо, и следующим шагом
-   будет ожидание `NSApplicationDidBecomeActiveNotification`, а не ещё одна догадка.
-
-### Отдельно: достаточно ли швов 1 и 2 — доложено, не сделано
-
-Пакет требует доложить, если швы кажутся недостаточными, и запрещает поднимать
-`panel.level`. Докладываю: **оснований считать швы недостаточными у меня нет**, и уровень
-панели я не поднимал.
-
-Причина не в вежливости к запрету, а в том, что оба шва снимают названные причины целиком, а
-не ослабляют их: конкурент за key-статус не «перебивается», а закрывается; активация не
-«ускоряется», а получает виток на то, чтобы доехать. Третьей причины, которую пришлось бы
-компенсировать уровнем, из свойств API не следует. Если панель подведёт в четвёртый раз,
-данных для решения теперь ровно столько, сколько нужно: `appActive` отделяет несработавший
-шов 1, `keyWindowLevel` — несработавший шов 2, `panelLevel` даёт исходную точку для самого
-решения об уровне.
+- **Низкий, косметический.** Порядок «по bundle id» выглядит произвольным относительно того,
+  что читает глаз, — автор об этом предупреждён и цену принял (амендмент 7).
+- `soonestRemaining` остался публичным свойством, у которого больше нет потребителя в
+  продакшн-коде: он вычисляется только тогда, когда его спрашивают, поэтому стоимость нулевая,
+  но формально это API без пользователя. Удалять его этим раундом не стал: это потребовало бы
+  правки уцелевшего теста, который пакет не называл. Решение — за оркестратором.
+- Сортировка в конструкторе `PopoverViewModel` теперь одна строка без именованного компаратора.
+  Если когда-нибудь появится второй ключ, его придётся вводить осознанно — что и есть цель
+  амендмента.
 
 ## Незавершённое и follow-up
 
-- Пункт 3 ручного чеклиста (первый клик выбирает — на первом и на повторном нажатии) и
-  чтение лог-строки для обоих случаев остаются человеку. Самосертифицировать их я не вправе.
-- Порядок строк списка — отдельный раунд, уже решённый оркестратором; в этом диффе не
-  затронут.
+Ничего незавершённого в границах пакета. Возможный follow-up (решает оркестратор): удалять ли
+`PopoverRow.soonestRemaining` вместе с проверяющим его `#expect` в
+`ruleWithTwoRunningInstancesYieldsTwoRemainingTimes` — это уменьшило бы число тестов не по
+формуле «минус четыре, плюс три», поэтому в этот раунд не вносилось.

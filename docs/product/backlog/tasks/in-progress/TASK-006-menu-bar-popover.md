@@ -871,3 +871,90 @@ headlessly; `swift test` stays at 83 tests in 8 suites.
 Checklist **item 3 is reinstated and sharpened**: pressing Add App… opens the panel and the
 **first** click selects an application — on the first press after launch, and again on a later
 press in the same session. The log line above is read back for both.
+
+
+---
+
+## Amendment 7 · 2026-08-31 — rows stop moving: order becomes stable and is the bundle identifier
+
+Written by the orchestrator; **decided by the author**, who asked that rows keep the order the
+applications were added in. This reverses a design the card locked with four named tests, so it
+is recorded as a reversal and argued as one.
+
+### What the author asked for, and what is actually deliverable
+
+> "Давай не будем менять порядок — оставим порядок, в каком были добавлены приложения."
+
+**Insertion order is not recoverable from disk, and cannot be without changing the file format.**
+`config.json` stores `rules` as a JSON *object* keyed by bundle identifier, written with
+`.sortedKeys`; a JSON object has no order, and no `addedAt` field exists. Delivering insertion
+order literally would mean adding a per-rule timestamp — a change to a human-facing on-disk
+contract, a migration, and a fallback decision for the rules that already exist without it.
+
+The author was told this cost, chose not to pay it, and selected a **stable order keyed on the
+bundle identifier** instead.
+
+### The requirement underneath the request is stability, and that is what is being fixed
+
+Today `PopoverViewModel` sorts by a `sortRank` bucket and then by remaining time
+(`PopoverViewModel.swift:51`, `:61`, `:170`). Every one of those inputs changes while the popover
+is open: a countdown ticks every second, an application starts or exits, a toggle flips. So rows
+**move under the cursor** — and the toggle a user is reaching for slides away exactly when a rule
+is about to be disabled, which under DEC-006 is the one lever the user is entitled to.
+
+A stable order fixes that regardless of which key is chosen. The bundle identifier is chosen
+because it is the only candidate that costs nothing and never changes: it is already the exact
+match key (findings §10), it is already the tiebreak rule, and it is what `config.json` and every
+log line carry.
+
+### The order is the bundle identifier and nothing else — no buckets
+
+Ascending by `bundleIdentifier`. **No `sortRank`, no bucketing by running / not-running /
+disabled, no secondary key.**
+
+Bucketing is dropped deliberately rather than kept "as a tiebreak": a bucket that survives is a
+bucket a row can move between, and a row that moves when its rule is toggled reproduces the exact
+annoyance this amendment exists to remove.
+
+Instances **within** a row keep sorting by `SessionKey` (`PopoverViewModel.swift:41`). That is a
+different list, it is already deterministic, and it is untouched.
+
+### Not by display name
+
+Amendment 5 resolves a human-readable name for each row, and sorting by it would match what the
+eye reads. It is still rejected: the name is resolved from the environment, so row order would
+depend on which applications happen to be installed and on the user's language, and would change
+when an application is uninstalled or renamed. Order must not be a function of anything outside
+the rules file.
+
+**A consequence the author has been told and accepted:** the order will look arbitrary to the eye,
+because what is sorted is not what is written on the first line. `com.apple.TextEdit` sorts before
+`com.apple.printcenter` — capital `T` precedes lowercase `p` in a string comparison.
+
+### Four acceptance tests are struck and replaced by three
+
+Struck, because the behaviour they lock is the behaviour being removed:
+
+- `rowsSortAscendingByRemainingTime`
+- `rulesWithNoRunningInstanceSortAfterRunningOnes`
+- `disabledRulesSortLast`
+- `equalRemainingTimesBreakTieByBundleIdentifier` — subsumed: with one key there is no tie to break
+
+Replaced by three that assert **stability itself**, not merely the sort key — a test that only
+checked the key would pass on an implementation that still reordered on some other input:
+
+1. `rowsSortByBundleIdentifierAscending` — order is the bundle identifier, ascending, and nothing
+   else affects it;
+2. `rowOrderDoesNotChangeAsRemainingTimeChanges` — the same rules evaluated at two different `now`
+   values, with countdowns at different points, produce the same order;
+3. `rowOrderDoesNotChangeWhenARuleIsDisabledOrItsAppExits` — disabling a rule, and removing its
+   running instance, each leave the order unchanged.
+
+Test count therefore moves from **83 to 82**, and that is expected rather than a regression: four
+removed, three added.
+
+### Scope
+
+`TerminatorCore` only — `PopoverViewModel` and its test suite. The view renders whatever order it
+is given and needs no change; `PopoverModel` is not involved; the red-eye predicate does not read
+row order.

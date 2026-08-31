@@ -60,82 +60,118 @@ struct PopoverViewModelTests {
 
     // MARK: - Порядок строк
 
-    /// Строки идут по возрастанию остатка.
-    @Test func rowsSortAscendingByRemainingTime() throws {
+    /// Порядок — `bundleIdentifier` по возрастанию, и ничто другое на него не влияет.
+    ///
+    /// Правила подобраны так, что каждый прежний вход спорит с ответом: `safari` выключен
+    /// (прежде уходил последним), `printCenter` не запущен (прежде уходил после запущенных),
+    /// у `telegram` остаток меньше всех (прежде уходил первым). Сравнение — обычное
+    /// строковое, поэтому `com.apple.TextEdit` идёт перед `com.apple.printcenter`:
+    /// регистронезависимое или локализованное сравнение дало бы обратный порядок.
+    @Test func rowsSortByBundleIdentifierAscending() throws {
         let model = PopoverViewModel(
             config: try config([
-                rule(slack, minutes: 60),
                 rule(telegram, minutes: 60),
-                rule(safari, minutes: 60)
+                rule(safari, minutes: 60, enabled: false),
+                rule(printCenter, minutes: 60),
+                rule(slack, minutes: 60),
+                rule(textEdit, minutes: 60)
             ]),
             sessions: [
-                session(slack, pid: 501, start: t(-100), deadline: t(900)),
                 session(telegram, pid: 502, start: t(-100), deadline: t(120)),
-                session(safari, pid: 503, start: t(-100), deadline: t(400))
+                session(safari, pid: 503, start: t(-100), deadline: t(900)),
+                session(slack, pid: 501, start: t(-100), deadline: t(600)),
+                session(textEdit, pid: 504, start: t(-100), deadline: t(400))
             ],
             quarantine: nil,
             now: t(0)
         )
 
-        #expect(model.rows.map(\.bundleIdentifier) == [telegram, safari, slack])
+        #expect(
+            model.rows.map(\.bundleIdentifier)
+                == [safari, textEdit, printCenter, slack, telegram]
+        )
+        #expect(model.rows.map(\.bundleIdentifier) == model.rows.map(\.bundleIdentifier).sorted())
     }
 
-    /// Правила без запущенных экземпляров идут после правил с ними, каким бы близким ни был
-    /// чужой дедлайн.
-    @Test func rulesWithNoRunningInstanceSortAfterRunningOnes() throws {
-        let model = PopoverViewModel(
+    /// Тикающий отсчёт порядок не меняет.
+    ///
+    /// Те же правила и те же сессии, вычисленные при двух разных `now`: в первый момент
+    /// остатки различны, во второй оба дедлайна уже прошли и остатки схлопнулись в ноль.
+    /// Прежняя сортировка по остатку на этой паре как раз переставляла строки — сначала
+    /// `telegram` был ближе к дедлайну, потом ничья разрешалась по bundle id.
+    @Test func rowOrderDoesNotChangeAsRemainingTimeChanges() throws {
+        let rules = try config([
+            rule(slack, minutes: 60),
+            rule(telegram, minutes: 60),
+            rule(safari, minutes: 60)
+        ])
+        let sessions = [
+            session(slack, pid: 501, start: t(-100), deadline: t(100)),
+            session(telegram, pid: 502, start: t(-100), deadline: t(50))
+            // safari запущенного экземпляра не имеет вовсе.
+        ]
+
+        let early = PopoverViewModel(config: rules, sessions: sessions, quarantine: nil, now: t(0))
+        let late = PopoverViewModel(config: rules, sessions: sessions, quarantine: nil, now: t(200))
+
+        #expect(early.rows.map(\.bundleIdentifier) == [safari, slack, telegram])
+        #expect(late.rows.map(\.bundleIdentifier) == early.rows.map(\.bundleIdentifier))
+
+        // И отсчёт действительно сдвинулся: остатки в двух моментах разные, а порядок — нет.
+        #expect(early.rows.map(\.soonestRemaining) == [nil, 100, 50])
+        #expect(late.rows.map(\.soonestRemaining) == [nil, 0, 0])
+    }
+
+    /// Щелчок тумблера и выход приложения порядок не меняют — каждое по отдельности.
+    ///
+    /// Это та самая помеха, ради которой порядок стал стабильным: строка не должна уезжать
+    /// из-под курсора в момент, когда правило выключают (DEC-006).
+    @Test func rowOrderDoesNotChangeWhenARuleIsDisabledOrItsAppExits() throws {
+        let running = [
+            session(safari, pid: 503, start: t(-100), deadline: t(900)),
+            session(slack, pid: 501, start: t(-100), deadline: t(600)),
+            session(telegram, pid: 502, start: t(-100), deadline: t(300))
+        ]
+        let baseline = PopoverViewModel(
             config: try config([
                 rule(safari, minutes: 60),
-                rule(slack, minutes: 60)
+                rule(slack, minutes: 60),
+                rule(telegram, minutes: 60)
             ]),
-            // Запущен только Slack, и остаток у него большой.
-            sessions: [session(slack, pid: 501, start: t(-100), deadline: t(9999))],
+            sessions: running,
             quarantine: nil,
             now: t(0)
         )
+        #expect(baseline.rows.map(\.bundleIdentifier) == [safari, slack, telegram])
 
-        #expect(model.rows.map(\.bundleIdentifier) == [slack, safari])
-        #expect(model.rows[0].instances.count == 1)
-        #expect(model.rows[1].instances.isEmpty)
-    }
-
-    /// Выключенные — последними, даже если по алфавиту они первые.
-    @Test func disabledRulesSortLast() throws {
-        let model = PopoverViewModel(
+        // Тумблер `safari` щёлкнут: строка осталась на месте, хотя правило выключено.
+        let afterToggle = PopoverViewModel(
             config: try config([
                 rule(safari, minutes: 60, enabled: false),
                 rule(slack, minutes: 60),
                 rule(telegram, minutes: 60)
             ]),
-            sessions: [session(telegram, pid: 502, start: t(-100), deadline: t(300))],
+            sessions: running,
             quarantine: nil,
             now: t(0)
         )
+        #expect(afterToggle.rows.map(\.bundleIdentifier) == baseline.rows.map(\.bundleIdentifier))
+        #expect(afterToggle.rows.first?.isEnabled == false)
 
-        // telegram запущен, slack включён но не запущен, safari выключен.
-        #expect(model.rows.map(\.bundleIdentifier) == [telegram, slack, safari])
-        #expect(model.rows.last?.isEnabled == false)
-    }
-
-    /// Ничьи разрешаются по `bundleIdentifier` по возрастанию — порядок детерминирован.
-    @Test func equalRemainingTimesBreakTieByBundleIdentifier() throws {
-        let model = PopoverViewModel(
+        // `safari` вышел: экземпляра больше нет, строка снова на том же месте.
+        let afterExit = PopoverViewModel(
             config: try config([
-                rule(telegram, minutes: 60),
+                rule(safari, minutes: 60),
                 rule(slack, minutes: 60),
-                rule(safari, minutes: 60)
+                rule(telegram, minutes: 60)
             ]),
-            sessions: [
-                session(telegram, pid: 502, start: t(-100), deadline: t(600)),
-                session(slack, pid: 501, start: t(-100), deadline: t(600)),
-                session(safari, pid: 503, start: t(-100), deadline: t(600))
-            ],
+            sessions: running.filter { $0.bundleIdentifier != safari },
             quarantine: nil,
             now: t(0)
         )
-
-        #expect(model.rows.map(\.bundleIdentifier) == [slack, safari, telegram].sorted())
-        #expect(model.rows.map(\.bundleIdentifier) == model.rows.map(\.bundleIdentifier).sorted())
+        #expect(afterExit.rows.map(\.bundleIdentifier) == baseline.rows.map(\.bundleIdentifier))
+        #expect(afterExit.rows.first?.instances.isEmpty == true)
+        #expect(afterExit.rows.first?.isEnabled == true)
     }
 
     // MARK: - Пустое состояние и несколько экземпляров
@@ -352,6 +388,8 @@ struct PopoverViewModelTests {
 private let slack = "com.tinyspeck.slackmacgap"
 private let telegram = "ru.keepcoder.Telegram"
 private let safari = "com.apple.Safari"
+private let textEdit = "com.apple.TextEdit"
+private let printCenter = "com.apple.printcenter"
 
 /// Момент `2026-08-27T13:00:00Z` плюс смещение в секундах.
 private func t(_ offset: TimeInterval) -> Date {

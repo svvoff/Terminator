@@ -48,22 +48,27 @@ public struct PopoverViewModel: Equatable, Sendable {
             )
         }
 
-        self.rows = unsorted.sorted(by: PopoverViewModel.precedes)
+        // Порядок строк — по `bundleIdentifier` по возрастанию и больше ничем: см. ниже.
+        self.rows = unsorted.sorted { $0.bundleIdentifier < $1.bundleIdentifier }
         self.banner = quarantine.map(PopoverBanner.init(_:))
     }
 
     // MARK: - Порядок строк
 
-    /// Порядок: сначала правила с запущенными экземплярами по возрастанию **минимального**
-    /// остатка, затем правила без запущенных экземпляров, затем выключенные. Ничьи — по
-    /// `bundleIdentifier` по возрастанию, чтобы порядок был детерминирован.
-    private static func precedes(_ lhs: PopoverRow, _ rhs: PopoverRow) -> Bool {
-        if lhs.sortRank != rhs.sortRank { return lhs.sortRank < rhs.sortRank }
-        if let left = lhs.soonestRemaining, let right = rhs.soonestRemaining, left != right {
-            return left < right
-        }
-        return lhs.bundleIdentifier < rhs.bundleIdentifier
-    }
+    // Порядок строк — **стабильный**: `bundleIdentifier` по возрастанию, второго ключа нет.
+    //
+    // Бакеты (запущенные / без экземпляра / выключенные) и сортировка по остатку убраны
+    // намеренно: все их входы меняются при открытом поповере — отсчёт тикает каждую секунду,
+    // приложение запускается и выходит, тумблер щёлкает, — и строка уезжала из-под курсора
+    // ровно тогда, когда правило собирались выключить. Уцелевший бакет — это бакет, между
+    // которыми строка может переехать, поэтому вторичного признака не остаётся вовсе.
+    //
+    // Ключ — bundle id, а не имя приложения: имя резолвится из окружения, и порядок стал бы
+    // функцией того, что установлено на машине и на каком языке система. Bundle id уже
+    // является ключом сопоставления (findings §10) и не меняется никогда. Сравнение —
+    // обычное строковое, поэтому `com.apple.TextEdit` идёт перед `com.apple.printcenter`.
+    //
+    // Ключи `config.rules` уникальны, так что порядок полный и детерминированный.
 
     // MARK: - Остаток
 
@@ -161,15 +166,10 @@ public struct PopoverRow: Equatable, Sendable {
         self.instances = instances
     }
 
-    /// Ключ сортировки: минимальный остаток среди экземпляров правила.
+    /// Минимальный остаток среди экземпляров правила. На порядок строк **не влияет**:
+    /// порядок — это bundle id и ничто другое.
     public var soonestRemaining: TimeInterval? {
         instances.map(\.remaining).min()
-    }
-
-    /// Группа порядка: 0 — идут отсчёты, 1 — включено, но не запущено, 2 — выключено.
-    var sortRank: Int {
-        if !isEnabled { return 2 }
-        return instances.isEmpty ? 1 : 0
     }
 }
 
