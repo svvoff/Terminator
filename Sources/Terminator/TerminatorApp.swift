@@ -66,4 +66,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         controller.onStateChanged = { [weak self] in self?.popover.refresh() }
         controller.start()
     }
+
+    /// Последний слив фокуса перед выходом (TASK-007).
+    ///
+    /// Надёжен как есть: счётчик sudden termination стартует с 1, поэтому этот вызов
+    /// приходит и при логауте, и при перезагрузке, и при выключении (findings §11). Ключ
+    /// `Info.plist`, который отнял бы эту гарантию, в бандл не добавлен, и парных вызовов
+    /// включения-выключения внезапного завершения вокруг грязного окна здесь тоже нет: при
+    /// счётчике 1 сбалансированная пара — no-op, а несбалансированная **включила** бы ровно
+    /// ту потерю, от которой выглядит защитой.
+    func applicationWillTerminate(_ notification: Notification) {
+        controller.flushFocus()
+    }
 }

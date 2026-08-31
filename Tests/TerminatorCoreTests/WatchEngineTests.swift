@@ -573,8 +573,17 @@ private func t(_ offset: TimeInterval) -> Date {
     epoch.addingTimeInterval(offset)
 }
 
+/// Момент для редьюсера. Все три поля обязательны — у `Now` нет умолчаний.
+///
+/// Накопительное чтение идёт вровень со стенным: в этих тестах машина не спит, а сценарии
+/// TASK-004 его не читают вовсе. Пояс — UTC, чтобы день не зависел от машины, на которой
+/// гоняют тесты.
 private func now(_ offset: TimeInterval) -> Now {
-    Now(wall: t(offset))
+    Now(
+        wall: t(offset),
+        awake: AwakeInstant(sinceOrigin: .seconds(1_000_000 + offset)),
+        timeZone: TimeZone(secondsFromGMT: 0)!
+    )
 }
 
 private func engineWatching(

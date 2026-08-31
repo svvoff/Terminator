@@ -41,11 +41,18 @@ public struct WatchEngine {
     /// реализация ровно одна.
     private let expiryAction: any ExpiryAction
 
+    /// Учёт фокуса (TASK-007): открытый спан, причины паузы и дневная свёртка.
+    ///
+    /// Одно поле, а не четыре: инвариант «слить спан до удаления сессии» проверяется в одном
+    /// месте. Дедлайна оно не касается ни в одну сторону (DEC-001, DEC-005).
+    private var focus: FocusLedger
+
     public init(config: RuleConfig = .empty, expiryAction: any ExpiryAction = QuitImmediately()) {
         self.config = config
         self.sessions = [:]
         self.announcedBundleIdentifiers = []
         self.expiryAction = expiryAction
+        self.focus = FocusLedger()
     }
 
     /// Живые отсчёты в детерминированном порядке. Только чтение: состояние движка меняется
@@ -54,11 +61,24 @@ public struct WatchEngine {
         sortedKeys().compactMap { sessions[$0] }
     }
 
+    /// Дневная свёртка фокуса **по состоянию на `now`** — только чтение.
+    ///
+    /// Параметр здесь обязателен: открытый спан ещё не начислен, а без него слив терял бы
+    /// всё, накопленное с момента последнего входа. Функция чистая — состояние движка она не
+    /// меняет, и то же самое начисление позже сделает ближайший вход фокуса, поэтому
+    /// двойного счёта не бывает.
+    ///
+    /// Числа здесь — накопленное **этим запуском** Terminator. К записанному прошлыми
+    /// запусками их прибавляет `FocusStore` при сливе.
+    public func focusRollup(at now: Now) -> FocusRollup {
+        focus.rollup(in: config, at: now)
+    }
+
     /// Единственный вход в движок.
     public mutating func handle(_ input: EngineInput, at now: Now) -> [Effect] {
         switch input {
         case .configChanged(let config):
-            return applyConfig(config)
+            return applyConfig(config, at: now)
         case .reconcile(let observed):
             return reconcile(with: observed, at: now)
         case .observed(let insertions):
@@ -69,6 +89,22 @@ public struct WatchEngine {
             return evaluateDeadlines(at: now)
         case .quitOutcome(let pid, let outcome):
             return apply(outcome, pid: pid, at: now)
+
+        // Четыре входа фокуса. Эффектов они не дают вовсе: свёртка — это состояние, которое
+        // читают, а лог фокуса пишет адаптер своим логгером категории `focus`. Седьмого
+        // случая `Effect` и седьмого вида `LogEvent` не заводится.
+        case .frontmostChanged(let app):
+            focus.frontmostChanged(to: app, in: config, at: now)
+            return []
+        case .focusPaused(let reason):
+            focus.pause(reason, in: config, at: now)
+            return []
+        case .focusResumed(let reason):
+            focus.resume(reason, in: config, at: now)
+            return []
+        case .dayRollover:
+            focus.dayRollover(in: config, at: now)
+            return []
         }
     }
 
@@ -86,7 +122,12 @@ public struct WatchEngine {
     ///
     /// Снятие сессии выключенного правила лог-событием не сопровождается: приложение не
     /// закрылось, а `app-exited` сказало бы, что закрылось. Седьмого события в списке нет.
-    private mutating func applyConfig(_ newConfig: RuleConfig) -> [Effect] {
+    ///
+    /// `now` появился здесь ради единственной вставки ниже: снятие сессии — один из четырёх
+    /// путей удаления из таблицы, а слив открытого спана без момента времени не выражается.
+    /// Семантика пересчёта дедлайнов от этого не меняется — истечение здесь по-прежнему не
+    /// оценивается.
+    private mutating func applyConfig(_ newConfig: RuleConfig, at now: Now) -> [Effect] {
         config = newConfig
         for key in sortedKeys() {
             guard var session = sessions[key] else { continue }
@@ -94,6 +135,7 @@ public struct WatchEngine {
                 let rule = config.rule(for: session.bundleIdentifier),
                 let deadline = Self.deadline(processStartTime: session.processStartTime, rule: rule)
             else {
+                focus.endSpan(ofSession: key, in: sessions, config: config, at: now)
                 sessions[key] = nil
                 continue
             }
@@ -119,6 +161,7 @@ public struct WatchEngine {
         //    пропущенного KVO-события: без него мёртвая сессия висела бы вечно, а сессия
         //    в середине лестницы ретраев слала бы quit переиспользованному pid.
         for key in sortedKeys() where !observed.contains(where: { $0.pid == key.pid && $0.startTime == key.startTime }) {
+            focus.endSpan(ofSession: key, in: sessions, config: config, at: now)
             guard let session = sessions.removeValue(forKey: key) else { continue }
             effects.append(.log(Self.exitEvent(session, at: now)))
         }
@@ -296,6 +339,7 @@ public struct WatchEngine {
                 // Процесса нет: перепроверка `p_starttime` перед отправкой поймала либо
                 // исчезновение, либо переиспользованный pid. Сессия снимается без ошибки
                 // и без ретрая.
+                focus.endSpan(ofSession: key, in: sessions, config: config, at: now)
                 sessions[key] = nil
                 effects.append(.log(Self.exitEvent(session, at: now)))
 
@@ -316,6 +360,7 @@ public struct WatchEngine {
     private mutating func dropSessions(pid: pid_t, at now: Now) -> [Effect] {
         var effects: [Effect] = []
         for key in sortedKeys() where key.pid == pid {
+            focus.endSpan(ofSession: key, in: sessions, config: config, at: now)
             guard let session = sessions.removeValue(forKey: key) else { continue }
             effects.append(.log(Self.exitEvent(session, at: now)))
         }
