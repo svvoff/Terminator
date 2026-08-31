@@ -1,455 +1,406 @@
-# Отчёт об исполнении — TASK-006, раунд 4 (поток `-popover`)
+# Отчёт об исполнении — TASK-006, раунд 5 (поток `-popover`)
 
 ## Задача
 
-TASK-006, амендмент 5: строка списка опознаёт приложение только по bundle id, который
-усекается по середине и нечитаем. Показать человекочитаемое имя приложения над
-идентификатором.
-
-Пакет: `docs/ai/handoff/current-task-packet-popover.md`.
+TASK-006, амендмент 6: панель добавления приложения проигрывает гонку за фокус. Два шва
+(показ панели следующим витком рантайма; закрытие поповера до показа панели) плюс
+обязательное инструментирование лог-строкой непосредственно перед `runModal()`.
 
 ## Кратко
 
-Имена резолвятся один раз на открытие поповера — `NSWorkspace.shared.urlForApplication(withBundleIdentifier:)`
-→ `FileManager.default.displayName(atPath:)`, — и кладутся в приватный словарь `PopoverModel`
-по bundle id. Строка правила показывает имя обычным body-шрифтом первой строкой и
-идентификатор caption-моноширинным под ним; когда имя не резолвится, первой строкой остаётся
-идентификатор, а вторичная строка не выводится.
+`addApplication()` разделён на два витка: на текущем остаются закрытие поповера и
+`NSApp.activate()`, всё остальное — от конструирования `NSOpenPanel` до `apply(_:)` — уехало
+в `DispatchQueue.main.async` целиком и без изменений по существу. Поповер закрывается
+`NSApp.keyWindow?.close()`. Перед `runModal()` пишется одна строка в существующий
+`popoverLog` с `appActive`, наличием и уровнем key-окна и уровнем самой панели.
 
-`TerminatorCore` не тронут: `PopoverViewModel`, `PopoverRow` и сортировка не меняются.
-Изменены ровно два разрешённых файла. Тестов не добавлено и не убрано — 83 в 8 сьютах.
+Изменён ровно один файл. `panel.level` не поднят. Порядок строк списка не тронут.
+Валидатор раунда 3, его сильная ссылка, оба запасных гарда, настройка панели и резолв имён
+раунда 4 — не тронуты.
 
 ## Изменённые файлы
 
 | Файл | Что изменено |
 |---|---|
-| `Sources/Terminator/PopoverModel.swift` | приватный словарь `displayNames`, `func displayName(for:)`, `private func resolveDisplayNames()`, вызов резолва в `popoverDidOpen()` после `refresh()` |
-| `Sources/Terminator/PopoverView.swift` | `RuleRowView`: `primaryLabel` (имя или идентификатор), `identifierLine` (вторичная строка с идентификатором), `displayName` — чтение словаря модели |
+| `Sources/Terminator/PopoverModel.swift` | `addApplication()` разделён на два витка; добавлены `dismissPopoverWindow()` и `presentAddApplicationPanel()`; добавлена лог-строка перед `runModal()` |
 
-Больше в рабочем дереве изменено ничего, кроме этого отчёта. `current-task-packet-popover.md`
-и карточка TASK-006 числятся модифицированными — это правки оркестратора, я их не трогал.
+Больше ни одного файла (кроме этого отчёта) не тронуто. Второй файл не понадобился.
 
-## Где живёт кэш и когда заполняется
-
-```swift
-private var displayNames: [String: String] = [:]
-```
-
-— хранимое свойство `PopoverModel`, приватное; наружу только `displayName(for:)`.
-
-Заполняется **ровно в одном месте** — `resolveDisplayNames()`, — и зовётся оно **ровно из
-одного места**: `popoverDidOpen()`, порядок вызовов там теперь такой:
-
-```swift
-controller.reloadFromDisk()
-refresh()
-resolveDisplayNames()   // ← после refresh(): по набору правил, только что пришедшему с диска
-readLoginItemStatus()
-```
-
-Резолв стоит после `refresh()`, а не до: `refresh()` — это то место, где снимок `config`
-обновляется с контроллера. Резолв до него прошёлся бы по прошлому набору правил, и правило,
-дописанное в файл руками, осталось бы без имени до следующего открытия.
-
-Словарь пересобирается целиком на каждое открытие (`var resolved` → присваивание), поэтому
-удалённое правило не оставляет за собой записи, а переустановленное приложение резолвится
-заново. В `body` вью резолва нет: там только `displayNames[bundleIdentifier]` — чтение
-словаря. Содержимое поповера перерисовывается раз в секунду (`TimelineView(.periodic(by: 1))`),
-и запрос в LaunchServices на строку на кадр был бы платой за значение, которое при открытом
-поповере не меняется. Дисциплина ровно та же, что уже применена к статусу автозапуска.
-
-Имя нигде не сериализуется: в `config.json` по-прежнему уходит только `bundleIdentifier`,
-DTO не тронут вовсе (`Sources/TerminatorCore/` — запрещённая зона этого раунда).
-
-## Что происходит, когда имя не резолвится
-
-`urlForApplication(withBundleIdentifier:)` вернул `nil` (приложение не установлено — случай
-настоящий: правило переживает удаление приложения) — идентификатор в словарь **не
-записывается**. Пустая строка тоже не записывается: `guard !name.isEmpty else { continue }`.
-Отсутствие ключа — единственное представление случая «имени нет», второго флага нет.
-
-Во вью это даёт ровно одну строку вместо двух:
-
-- `primaryLabel` показывает `row.bundleIdentifier` с `.font(.system(.body, design: .monospaced))`
-  — то есть строка выглядит в точности так, как выглядела до этого раунда;
-- `identifierLine` не выводится вовсе (`if displayName != nil`), чтобы один и тот же
-  идентификатор не стоял в строке дважды.
-
-`.help(row.bundleIdentifier)` навешан на месте вызова и потому присутствует в обеих ветках.
-
-## Дифф
+## Дифф — дословно
 
 ```diff
 diff --git a/Sources/Terminator/PopoverModel.swift b/Sources/Terminator/PopoverModel.swift
-@@ -78,6 +78,17 @@ final class PopoverModel {
-     /// перерисовывается раз в секунду (findings §14).
-     private(set) var loginItemStatus: LoginItemStatus?
+index 5ba32bb..8aa8e07 100644
+--- a/Sources/Terminator/PopoverModel.swift
++++ b/Sources/Terminator/PopoverModel.swift
+@@ -370,9 +370,61 @@ final class PopoverModel {
+     /// Панель отфильтрована по типу содержимого `.application`. Это единственный механизм
+     /// добавления и он покрывает оба случая — запущенное приложение и незапущенное, — а
+     /// список процессов не покрыл бы второй вовсе (findings §10).
++    ///
++    /// **Метод разделён на два витка рантайма, и это не косметика.** `NSApp.activate()` —
++    /// *запрос* активации у оконного сервера, а не смена состояния: сама активация приезжает
++    /// более поздним витком (ровно поэтому существует
++    /// `NSApplicationDidBecomeActiveNotification`). `runModal()`, вызванный тем же витком,
++    /// блокирует его — и панель показывается **до** того, как активация доехала. Гонка: иногда
++    /// успевает одно, иногда другое, и один и тот же неизменный код то работает, то нет.
++    ///
++    /// Поэтому на текущем витке остаются ровно два действия — закрыть поповер и попросить
++    /// активацию, — а всё остальное уходит следующим витком.
+     func addApplication() {
+         notice = nil
  
-+    /// Человекочитаемые имена приложений, снятые на текущее открытие поповера.
-+    ///
-+    /// Ключ — bundle id, значение — то же имя, которое показывает Finder. Идентификатор, для
-+    /// которого имя не нашлось, в словаре **отсутствует**: правило переживает удаление
-+    /// приложения, и пустая строка на месте имени была бы хуже самого идентификатора.
-+    ///
-+    /// Словарь живёт только в памяти. В `config.json` имя не попадает никогда: это сменило бы
-+    /// человекочитаемый контракт на диске ради значения, которое протухает от переименования,
-+    /// смены языка или замены приложения.
-+    private var displayNames: [String: String] = [:]
++        // Окно `MenuBarExtra` — key, пока поповер открыт, и живёт на уровне статус-бара, то
++        // есть выше обычного окна панели. Активация приложения этого конкурента не убирает:
++        // убирает только закрытие. Надежда «перебить уровнем» здесь не рассматривается —
++        // конкурент устраняется совсем.
++        dismissPopoverWindow()
 +
-     /// Регистрация записана, но система ещё не сообщает включённое состояние.
-@@ -119,6 +130,10 @@ final class PopoverModel {
-     func popoverDidOpen() {
-         controller.reloadFromDisk()
-         refresh()
-+        // Строго после `refresh()`: имена резолвятся по тому набору правил, который только что
-+        // пришёл с диска, иначе правило, дописанное в файл руками, осталось бы без имени до
-+        // следующего открытия.
-+        resolveDisplayNames()
-         readLoginItemStatus()
-         if let quarantine {
-             let reason = String(describing: quarantine)
-@@ -126,6 +141,46 @@ final class PopoverModel {
-         }
-     }
- 
-+    /// Имя приложения для строки списка. `nil` означает «не резолвится» — приложение не
-+    /// установлено, а правило его пережило; вью в этом случае показывает идентификатор.
-+    func displayName(for bundleIdentifier: String) -> String? {
-+        displayNames[bundleIdentifier]
-+    }
++        // Приложение `.accessory` (`LSUIElement=true`, findings §7) не активируется ничем в
++        // дереве: открытие поповера даёт временное key-окно, но не активацию. Модальная панель
++        // неактивного приложения получает окно, которое не является key, и первые клики уходят
++        // на активацию окна вместо выбора строки. `NSApp.activate()` — без
++        // `ignoringOtherApps:`, устаревшего с macOS 14, а таргет ровно `.macOS(.v14)`.
++        //
++        // Вызов необходим и ошибкой никогда не был — он был недостаточен в одиночку.
++        NSApp.activate()
 +
-+    /// Резолв имён — **одно чтение на открытие поповера, а не на кадр**.
-+    ///
-+    /// Содержимое поповера перерисовывается раз в секунду ради отсчёта, а
-+    /// `urlForApplication(withBundleIdentifier:)` — запрос в LaunchServices. Один запрос на
-+    /// строку на кадр был бы платой за значение, которое при открытом поповере не меняется. Та
-+    /// же дисциплина уже применена к статусу автозапуска: одно чтение на открытие.
-+    ///
-+    /// **Имя берётся у Finder, а не из `Info.plist`.** Ключи не годятся: `CFBundleDisplayName`
-+    /// у `com.tdesktop.Telegram` отсутствует, а обёрнутое iOS-приложение
-+    /// `org.khronos.gltf.glTFViewer` не несёт на верхнем уровне даже каталога `Contents/` —
-+    /// его настоящий бандл лежит под `Wrapper/`, и `CFBundleName` там читается как
-+    /// `glTFViewer`, без пробела, то есть не так, как это приложение называет Finder.
-+    /// Реализация через ключи выглядит правильной и молча даёт то отсутствие, то не то имя;
-+    /// `displayName(atPath:)` вдобавок отдаёт локализованное имя.
-+    ///
-+    /// Имя — presentation и ничего больше: в сортировку, в фильтрацию и ни в одно решение оно
-+    /// не входит. Порядок строк остаётся за ядром — по остатку, затем по `bundleIdentifier`.
-+    private func resolveDisplayNames() {
-+        var resolved: [String: String] = [:]
-+        resolved.reserveCapacity(config.rules.count)
-+        for bundleIdentifier in config.rules.keys {
-+            guard
-+                let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleIdentifier)
-+            else {
-+                // Приложение не установлено. Случай настоящий: правило переживает удаление
-+                // приложения, и строка обязана остаться на месте — со своим идентификатором.
-+                continue
-+            }
-+            let name = FileManager.default.displayName(atPath: url.path)
-+            guard !name.isEmpty else { continue }
-+            resolved[bundleIdentifier] = name
++        // Следующий виток: к моменту показа панели закрытие поповера уже обработано, а запрос
++        // активации успел доехать.
++        DispatchQueue.main.async {
++            self.presentAddApplicationPanel()
 +        }
-+        displayNames = resolved
 +    }
 +
-     // MARK: - Автозапуск
++    /// Закрытие окна поповера перед показом панели.
++    ///
++    /// У приложения нет других окон: сцена одна — `MenuBarExtra`, — и пока поповер открыт,
++    /// key-окно только он. Отсюда и форма: закрывается ровно текущее key-окно, а не окно,
++    /// найденное перебором по признаку.
++    ///
++    /// `close()`, а не `orderOut(_:)`: закрытие рассылает `willCloseNotification`, по которому
++    /// SwiftUI приводит в порядок собственное состояние показа. Окно, убранное `orderOut`,
++    /// осталось бы «показанным» с точки зрения сцены, и следующее нажатие на пункт меню-бара
++    /// только переключило бы флаг, не открыв поповер.
++    ///
++    /// Это **единственное** место, где временное окно поповера трогается, и трогается оно
++    /// ровно одним способом — закрывается. Ни закрепления, ни перестилизации, ни пересоздания.
++    private func dismissPopoverWindow() {
++        NSApp.keyWindow?.close()
++    }
++
++    /// Вторая половина `addApplication()`: настройка панели, показ, разбор выбора и запись.
++    /// Исполняется отдельным витком рантайма — см. доку `addApplication()`.
++    private func presentAddApplicationPanel() {
+         let panel = NSOpenPanel()
+         panel.allowedContentTypes = [.application]
+         panel.allowsMultipleSelection = false
+@@ -387,12 +439,26 @@ final class PopoverModel {
+         addPanelValidator.identifiersOnTheList = Set(config.rules.keys)
+         panel.delegate = addPanelValidator
+ 
+-        // Приложение `.accessory` (`LSUIElement=true`, findings §7) не активируется ничем в
+-        // дереве: открытие поповера даёт временное key-окно, но не активацию. Модальная панель
+-        // неактивного приложения получает окно, которое не является key, и первые клики уходят
+-        // на активацию окна вместо выбора строки. `NSApp.activate()` — без
+-        // `ignoringOtherApps:`, устаревшего с macOS 14, а таргет ровно `.macOS(.v14)`.
+-        NSApp.activate()
++        // Инструментирование, а не украшение: «первый клик не выбирает» — дефект, стоивший
++        // трёх раундов правок вслепую, и следующее решение принимается по этой строке, а не по
++        // четвёртой догадке. Пишется непосредственно перед `runModal()`, то есть уже после
++        // закрытия поповера и после витка, которым должна была доехать активация.
++        //
++        // Три факта и все три нужны порознь. `appActive=false` означает, что активация не
++        // доехала (шов 1 не сработал). Оставшееся key-окно на уровне статус-бара
++        // (`NSWindow.Level.statusBar.rawValue` = 25) означает, что поповер закрыть не удалось
++        // (шов 2 не сработал). `panelLevel` отвечает на отложенный вопрос — хватает ли швов
++        // без подъёма уровня самой панели; поднимать его эта карточка запрещает, измерить —
++        // нет. Значения снимаются в локальные переменные: интерполяция `Logger` принимает
++        // `@autoclosure`, и состояние приложения читается здесь, а не когда-то потом.
++        let appIsActive = NSApp.isActive
++        let keyWindow = NSApp.keyWindow
++        let keyWindowPresence = keyWindow == nil ? "none" : "present"
++        let keyWindowLevel = keyWindow.map { String($0.level.rawValue) } ?? "none"
++        let panelLevel = panel.level.rawValue
++        popoverLog.notice(
++            "add-app panel about to run modal: appActive=\(appIsActive, privacy: .public) keyWindow=\(keyWindowPresence, privacy: .public) keyWindowLevel=\(keyWindowLevel, privacy: .public) panelLevel=\(panelLevel, privacy: .public)"
++        )
+ 
+         guard panel.runModal() == .OK, let url = panel.url else { return }
 ```
 
-```diff
-diff --git a/Sources/Terminator/PopoverView.swift b/Sources/Terminator/PopoverView.swift
-@@ -161,8 +161,7 @@ private struct RuleRowView: View {
-                 .toggleStyle(.switch)
-                 .controlSize(.mini)
- 
--                Text(row.bundleIdentifier)
--                    .font(.system(.body, design: .monospaced))
-+                primaryLabel
-                     .lineLimit(1)
-                     .truncationMode(.middle)
-                     .help(row.bundleIdentifier)
-@@ -188,12 +187,59 @@ private struct RuleRowView: View {
-                 .help("Remove this rule")
-             }
- 
-+            identifierLine
-+
-             statusLines
-         }
-         .onAppear { limitText = displayedLimit }
-         .onChange(of: row.limitMinutes) { _, _ in limitText = displayedLimit }
-     }
- 
-+    /// Имя приложения на текущее открытие поповера. Резолв сделан один раз в
-+    /// `popoverDidOpen()`; здесь — только чтение словаря, потому что тело вью выполняется
-+    /// раз в секунду.
-+    private var displayName: String? {
-+        model.displayName(for: row.bundleIdentifier)
-+    }
-+
-+    /// Первая строка правила: имя приложения, если оно резолвится, иначе идентификатор.
-+    ///
-+    /// Имя идёт обычным body-шрифтом: моноширинный нужен идентификатору, у которого значим
-+    /// каждый символ, а не имени. Подсказка `.help(...)` с полным идентификатором висит на
-+    /// этой строке в обоих случаях — она навешана на месте вызова.
-+    @ViewBuilder
-+    private var primaryLabel: some View {
-+        if let displayName {
-+            Text(displayName)
-+        } else {
-+            // Приложение не установлено, имени нет. Строка выглядит ровно так, как выглядела
-+            // до появления имён.
-+            Text(row.bundleIdentifier)
-+                .font(.system(.body, design: .monospaced))
-+        }
-+    }
-+
-+    /// Идентификатор под именем. Отдельной строкой, а не припиской к статусу: приписка
-+    /// читается в ветке без экземпляров и разваливается во второй, где статусных строк
-+    /// столько же, сколько запущенных экземпляров.
-+    ///
-+    /// Идентификатор остаётся на виду намеренно: это точный ключ сопоставления (findings §10),
-+    /// он же лежит в `config.json`, который автор правит руками, и он же печатается в каждой
-+    /// строке лога. Когда имя не резолвится, идентификатор уже стоит первой строкой — и здесь
-+    /// не повторяется.
-+    @ViewBuilder
-+    private var identifierLine: some View {
-+        if displayName != nil {
-+            Text(row.bundleIdentifier)
-+                .font(.system(.caption, design: .monospaced))
-+                .foregroundStyle(.secondary)
-+                // Длинный идентификатор переносится, а не усекается: усечение по середине на
-+                // первой строке — ровно тот дефект, из-за которого имя и появилось.
-+                .fixedSize(horizontal: false, vertical: true)
-+                .padding(.leading, 30)
-+        }
-+    }
-+
-     private var displayedLimit: String {
+Дифф на этом заканчивается: ниже `runModal()` не изменена ни одна строка — оба запасных
+гарда, конструирование правила и `apply(_:)` уехали во второй метод целиком, без правок.
+Это видно по тому, что второй хунк заканчивается на `guard panel.runModal()` и третьего
+хунка нет.
+
+## Изменения поведения
+
+### Шов 1 — панель показывается другим витком
+
+`addApplication()` теперь делает на текущем витке ровно три вещи: сбрасывает `notice`,
+закрывает поповер, просит активацию. Всё остальное — конструирование `NSOpenPanel`, его
+настройка, снимок списка для валидатора, `panel.delegate`, лог-строка, `runModal()`, оба
+запасных гарда, конструирование `Rule` и `apply(_:)` — исполняется телом
+`presentAddApplicationPanel()`, вызванного из `DispatchQueue.main.async`.
+
+Виток, на котором вызван `NSApp.activate()`, теперь **не** блокируется `runModal()`: он
+завершается, рантайм успевает обработать и закрытие окна поповера, и приезд активации, и
+только следующим витком показывается панель.
+
+`DispatchQueue.main.async` взят дословно из пакета, а не заменён на `Task { @MainActor in }`
+или на `RunLoop.main.perform`. Замечание по конкурентности: на исполняемом таргете стоит
+`.defaultIsolation(MainActor.self)` (`Package.swift`), поэтому замыкание выводится
+MainActor-изолированным и захват `self` компилируется без `assumeIsolated`, без
+`@unchecked Sendable` и без `@preconcurrency` — ни одна из трёх запрещённых заглушек не
+понадобилась. Ноль предупреждений это подтверждает.
+
+### Шов 2 — чем именно закрывается поповер и почему так
+
+```swift
+private func dismissPopoverWindow() {
+    NSApp.keyWindow?.close()
+}
 ```
 
-## Два решения, принятых внутри границ пакета, — названы, а не спрятаны
+**Что закрывается.** У приложения ровно одна сцена — `MenuBarExtra` (`TerminatorApp.swift`),
+других окон не создаётся нигде. Пока поповер открыт, он и есть key-окно: это записано в
+комментарии, оставшемся от раунда 2, — «открытие поповера даёт временное key-окно, но не
+активацию». `addApplication()` вызывается только из строки этого поповера, то есть в момент
+вызова key-окно существует и это он. Поэтому адресация «текущее key-окно» точна, а перебор
+`NSApp.windows` по признаку уровня или класса был бы догадкой о внутреннем устройстве
+`MenuBarExtra` — ровно тем, чего амендмент велит избегать.
 
-1. **`.lineLimit(1)` и `.truncationMode(.middle)` остались на первой строке** и теперь
-   применяются к результату `primaryLabel`, то есть и к имени тоже. Имя короче
-   идентификатора и в отведённую ширину влезает; поведение при экзотически длинном имени
-   остаётся тем же, что было у идентификатора, и не заводит новой ветки вёрстки.
-2. **Вторичная строка с идентификатором переносится, а не усекается**
-   (`.fixedSize(horizontal: false, vertical: true)`, без `lineLimit`). Пакет задал шрифт,
-   цвет и отступ, но не задал поведение при нехватке ширины. Усечение по середине здесь
-   воспроизвело бы ровно тот дефект, ради которого написан амендмент, — идентификатор,
-   который нельзя прочесть; при ширине поповера 340 pt и отступе 30 pt четыре реальных
-   идентификатора автора умещаются в одну строку, и перенос сработает только на более
-   длинном. Если оркестратор предпочитает усечение — это правка одной строки.
+**Почему `close()`, а не `orderOut(_:)`.** `close()` рассылает `willCloseNotification`, по
+которому SwiftUI приводит в согласованность собственное состояние показа сцены. Окно,
+убранное `orderOut(_:)`, для сцены осталось бы показанным, и следующее нажатие на пункт
+меню-бара только сняло бы внутренний флаг, не открыв поповер, — то есть открывать пришлось
+бы двумя нажатиями. Это первый пункт, который стоит проверить в ручном чеклисте (см. ниже).
+
+**Почему не `performClose(_:)`.** Он моделирует нажатие кнопки закрытия и на окне без
+такой кнопки даёт системный звук вместо закрытия.
+
+**Границы.** Поповер только закрывается. Он не закрепляется, не перестилизуется, не
+пересоздаётся, `MenuBarExtra` и `TerminatorApp.swift` не тронуты вовсе.
+
+### Инструментирование — что попадёт в лог-строку
+
+Категория — существующий `popoverLog` (`TerminatorLog.Category.store`), уровень `.notice`,
+`privacy: .public` на каждой из четырёх интерполяций. Место — непосредственно перед
+`runModal()`, то есть уже после закрытия поповера и после витка активации.
+
+Формат строки:
+
+```
+add-app panel about to run modal: appActive=<true|false> keyWindow=<present|none> keyWindowLevel=<Int|none> panelLevel=<Int>
+```
+
+| Поле | Что значит | Как читать |
+|---|---|---|
+| `appActive` | `NSApp.isActive` | `false` — активация не доехала к моменту показа: шов 1 не сработал |
+| `keyWindow` | остался ли вообще key-окном кто-то | `none` при `appActive=false` — приложение неактивно и key-окна нет; `present` — читать следующее поле |
+| `keyWindowLevel` | `NSWindow.Level.rawValue` оставшегося key-окна | `25` (`.statusBar`) — поповер закрыть не удалось: шов 2 не сработал; `0` (`.normal`) — key у обычного окна |
+| `panelLevel` | `panel.level.rawValue` до `runModal()` | измерение для отложенного вопроса о подъёме уровня; значение только читается |
+
+`panelLevel` — единственное поле сверх обязательного минимума амендмента («at minimum»).
+Оно добавлено осознанно и ровно по причине, названной в амендменте: если панель подведёт в
+четвёртый раз, решение о подъёме уровня должно приниматься по измерению, а не по догадке, а
+без записанного исходного уровня такое решение снова было бы слепым. `panel.level`
+**только читается**; ни одного присваивания уровню в диффе нет.
+
+DEC-004 здесь ни при чём: это строка о состоянии окон, а не объявление продукта перед
+закрытием чужого приложения.
 
 ## Доказательства валидации
 
-Все команды запущены из корня репозитория. Счётчики `warning:` — это
-`grep -c 'warning:' <лог сборки>` по полному выводу команды.
-
 | Команда | Результат | Вывод |
 |---|---|---|
-| `rm -rf .build && swift build` | EXIT=0, **warnings=0** | `Build complete! (11.33s)` — полная пересборка с нуля |
-| `swift build -c release` | EXIT=0, **warnings=0** | `Build complete! (10.14s)` |
-| `swift test` | EXIT=0, warnings=0 | `✔ Test run with 83 tests in 8 suites passed after 0.216 seconds.` |
+| `swift package clean && swift build` | EXIT=0, `warning:` = **0** | `Build complete! (8.45s)` |
+| `swift build -c release` | EXIT=0, `warning:` = **0** | `Build complete! (8.13s)` |
+| `swift test` | EXIT=0, `warning:` = **0** | `Test run with 83 tests in 8 suites passed after 0.119 seconds.` |
 | `scripts/check-forbidden.sh` | EXIT=0 | `OK:    запрещённых конструкций не найдено` |
-| `./build.sh` | EXIT=0 | designated requirement совпал, `codesign --verify --strict` — терминальный шаг |
+| `./build.sh` | EXIT=0, `warning:` = **0** | терминальный `codesign --verify --strict` без вывода |
 
-После этого прогона я поправил один док-комментарий в `PopoverModel.swift` (см. «Расхождение
-с таблицей амендмента») и прогнал всё заново — уже инкрементально:
+### `swift package clean && swift build`
 
 ```
-debug EXIT=0 warnings=0
-release EXIT=0 warnings=0
-test EXIT=0 warnings=0
-✔ Test run with 83 tests in 8 suites passed after 0.136 seconds.
+EXIT_DEBUG=0
+WARNINGS_DEBUG=0
+[42/45] Compiling Terminator TerminatorApp.swift
+[42/45] Write Objects.LinkFileList
+[43/45] Linking Terminator
+[44/45] Applying Terminator
+Build complete! (8.45s)
+```
+
+Сборка отладочной конфигурации сделана **после `swift package clean`** намеренно: без него
+`swift build` отдаёт кэш и счётчик `warning:` ничего не доказывал бы.
+
+### `swift build -c release`
+
+```
+EXIT_RELEASE=0
+WARNINGS_RELEASE=0
+[6/8] Compiling TerminatorAppKit EngineLogRenderer.swift
+[7/9] Compiling Terminator PopoverModel.swift
+[7/9] Write Objects.LinkFileList
+[8/9] Linking Terminator
+Build complete! (8.13s)
+```
+
+### `swift test`
+
+```
+EXIT_TEST=0
+Test Suite 'All tests' passed at 2026-08-31 15:21:57.197.
+✔ Suite "Движок наблюдения" passed after 0.077 seconds.
+✔ Suite "Вью-модель поповера" passed after 0.077 seconds.
+✔ Suite "Доменная модель правила" passed after 0.077 seconds.
+✔ Suite "Автозапуск: содержимое plist и отображение статуса" passed after 0.077 seconds.
+✔ Suite "Учёт фокуса" passed after 0.106 seconds.
+✔ Suite "Формат конфига на диске" passed after 0.107 seconds.
+✔ Suite "Хранилище конфига: карантин, уборка, путь" passed after 0.111 seconds.
+✔ Suite "Долговечная запись" passed after 0.119 seconds.
+✔ Test run with 83 tests in 8 suites passed after 0.119 seconds.
+WARNINGS_TEST=0
+```
+
+**83 теста в 8 сьютах** — ровно столько, сколько было в базовом состоянии. Ни один тест не
+добавлен, не удалён и не заглушён.
+
+### `scripts/check-forbidden.sh`
+
+```
+EXIT_FORBIDDEN=0
 OK:    запрещённых конструкций не найдено
-forbidden EXIT=0
-build.sh EXIT=0
 ```
 
-Полный вывод `./build.sh` последнего прогона:
+### `./build.sh`
 
 ```
+EXIT_BUILDSH=0
+WARNINGS_BUILDSH=0
 --- swift build -c debug ---
 [0/1] Planning build
 Building for debugging...
 [0/3] Write swift-version--58304C5D6DBC2206.txt
-Build complete! (0.14s)
+Build complete! (0.12s)
 --- assemble build/Terminator.app ---
 --- codesign --force --sign "Terminator Dev" (последняя мутация бандла) ---
 build/Terminator.app: replacing existing signature
---- designated requirement guard ---
-designated requirement: identifier "com.svvoff.terminator" and certificate leaf = H"74d582911cd0b2c7ff3961af4bb0561efd6a8f24"
 --- codesign --verify --strict (терминальный шаг) ---
 ```
 
-Восемь сьютов, поимённо, последний прогон:
+Терминальный шаг отработал молча и с нулевым кодом возврата; designated requirement —
+`identifier "com.svvoff.terminator" and certificate leaf = H"74d58291…"`, то есть подпись
+`Terminator Dev`, не ad-hoc.
 
-```
-✔ Suite "Доменная модель правила" passed after 0.094 seconds.
-✔ Suite "Движок наблюдения" passed after 0.094 seconds.
-✔ Suite "Формат конфига на диске" passed after 0.101 seconds.
-✔ Suite "Автозапуск: содержимое plist и отображение статуса" passed after 0.110 seconds.
-✔ Suite "Вью-модель поповера" passed after 0.110 seconds.
-✔ Suite "Учёт фокуса" passed after 0.111 seconds.
-✔ Suite "Хранилище конфига: карантин, уборка, путь" passed after 0.115 seconds.
-✔ Suite "Долговечная запись" passed after 0.136 seconds.
-✔ Test run with 83 tests in 8 suites passed after 0.136 seconds.
-```
+Счётчики `warning:` получены `grep -c "warning:"` по полному выводу каждой команды.
 
-Тест сортировки, названный пакетом поимённо, — зелёный:
+## Acceptance criteria
 
-```
-✔ Test equalRemainingTimesBreakTieByBundleIdentifier() passed after 0.090 seconds.
-```
-
-### Стоп-условие 2 проверено отдельно: энтайтлмент и диалог согласия
-
-`urlForApplication(withBundleIdentifier:)` — вызов LaunchServices, не Apple Event и не TCC.
-Проверено **вне приложения** (приложение не запускалось): одноразовая программа в
-скретчпаде — `/private/tmp/.../scratchpad/probe.swift`, собрана `swiftc`, запущена как
-неподписанный некапсулированный CLI-процесс, то есть в условиях **строго слабее** боевых
-(нет бандла, нет подписи, нет Info.plist).
-
-```
-com.apple.TextEdit | url=/System/Applications/TextEdit.app | displayName=TextEdit | CFBundleDisplayName=TextEdit | CFBundleName=TextEdit
-com.tdesktop.Telegram | url=/Applications/Telegram.app | displayName=Telegram | CFBundleDisplayName=<absent> | CFBundleName=Telegram
-org.khronos.gltf.glTFViewer | url=/Applications/glTF Viewer.app | displayName=glTF Viewer | CFBundleDisplayName=glTF Viewer | CFBundleName=glTFViewer
-com.apple.printcenter | url=/System/Applications/Utilities/Print Center.app | displayName=Print Center | CFBundleDisplayName=Print Center | CFBundleName=Print Center
-com.example.definitely.not.installed | url=nil | displayName=<none>
-EXIT=0
-```
-
-Вывод: **ни энтайтлмента, ни диалога согласия**. Все четыре идентификатора резолвятся
-мгновенно и синхронно, ни один диалог не поднялся, процесс завершился с кодом 0. Пятая
-строка — синтетический неустановленный идентификатор: `url=nil`, то есть ветка «имени нет»
-достижима и наблюдаема. Останавливаться по стоп-условию 2 не потребовалось.
-
-Резолв `displayName(atPath:)` даёт ровно те имена, которые названы в чеклисте:
-`com.apple.printcenter` → **Print Center**, `org.khronos.gltf.glTFViewer` → **glTF Viewer**.
-
-### Расхождение с таблицей амендмента — сообщаю, не чиню
-
-Таблица амендмента 5 говорит про `org.khronos.gltf.glTFViewer`: `CFBundleDisplayName` —
-**absent**, `CFBundleName` — **absent**. Мой замер через `Bundle(url:)` показал оба ключа
-присутствующими: `CFBundleDisplayName=glTF Viewer`, `CFBundleName=glTFViewer`.
-
-Причина расхождения, проверенная на диске:
-
-```
-$ ls -la "/Applications/glTF Viewer.app/"
-lrw-r--r--  WrappedBundle -> Wrapper/glTFViewer.app
-drwxr-xr-x  Wrapper
-$ ls "/Applications/glTF Viewer.app/Contents/"
-ls: /Applications/glTF Viewer.app/Contents/: No such file or directory
-```
-
-Каталога `Contents/` действительно нет — тут амендмент точен. Но `Bundle(url:)` проходит
-через `WrappedBundle` во внутренний бандл и читает его `Info.plist`, поэтому ключи через
-Foundation-API видны, хотя по пути `Contents/Info.plist` их нет. Замер амендмента,
-по-видимому, снят по файловому пути, а не через `Bundle`.
-
-**Вывод амендмента от этого не меняется, и реализация не меняется тем более:**
-`CFBundleDisplayName` отсутствует у `com.tdesktop.Telegram` (это подтвердилось), а
-`CFBundleName` у обёрнутого приложения читается как `glTFViewer` — без пробела, то есть **не
-тем именем**, которым это приложение зовётся в Finder и в чеклисте. Путь через ключи
-`Info.plist` остаётся неверным; он просто ломается не отсутствием, а неправильным значением.
-Я привёл док-комментарий в `resolveDisplayNames()` в соответствие с измеренным, чтобы в коде
-не остался комментарий, утверждающий непроверяемое. Карточку не правил — это зона
-оркестратора.
-
-## Acceptance criteria (амендмент 5)
+Оцениваются только критерии, затронутые амендментом 6; остальные приняты в раундах 1–4 и
+кодом этого раунда не тронуты.
 
 | Критерий | Статус | Чем подтверждён |
 |---|---|---|
-| Имя из `urlForApplication` → `displayName(atPath:)`, без `CFBundleDisplayName`/`CFBundleName` | выполнен | дифф `resolveDisplayNames()`; ключи Info.plist в продакшн-коде не читаются вовсе |
-| Резолв в `popoverDidOpen()` после `reloadFromDisk()`, кэш по bundle id | выполнен | дифф `popoverDidOpen()`; единственный вызов `resolveDisplayNames()` |
-| Ни одного резолва на кадр | выполнен | во вью только `model.displayName(for:)` — чтение словаря; `NSWorkspace` в `PopoverView.swift` не упоминается |
-| Primary — имя, body-шрифт, не моноширинный, `.help(...)` сохранён | выполнен | дифф `primaryLabel` + `.help(row.bundleIdentifier)` на месте вызова |
-| Вторичная строка — идентификатор: caption, моноширинный, `.secondary`, отступ 30 | выполнен | дифф `identifierLine` |
-| Статусные строки ниже, без изменений | выполнен | `statusLines` в диффе не тронут |
-| Имя не резолвится → primary = идентификатор, вторичной строки нет | выполнен | дифф обеих веток; ветка `url=nil` наблюдалась в пробнике |
-| `TerminatorCore` не тронут | выполнен | `git status --short` — ни одного файла из `Sources/TerminatorCore/` |
-| Сортировка не изменена | выполнен | `equalRemainingTimesBreakTieByBundleIdentifier` зелёный; порядок строк по-прежнему целиком в ядре |
-| Имя не сохраняется в `config.json` | выполнен | словарь приватен и живёт в памяти; DTO и путь записи не тронуты |
-| Новых строк лога нет | выполнен | в диффе нет ни одного `popoverLog`/`loginItemLog` |
-| Иконок, поиска, группировки нет | выполнен | дифф |
-| Тестов ровно 83 в 8 сьютах | выполнен | `swift test` |
-| Ноль `warning:` в debug и release | выполнен | `warnings=0` в обеих конфигурациях, в т.ч. на полной пересборке с нуля |
-| **Чеклист, пункт 16** | **требует человека** | см. ниже |
+| Шов 1: всё от `NSOpenPanel` и далее исполняется отдельным витком; активация и закрытие поповера — на текущем | выполнен | дифф: тело `presentAddApplicationPanel()` вызывается из `DispatchQueue.main.async` |
+| Шов 2: поповер закрывается до показа панели; только закрывается | выполнен | дифф: `dismissPopoverWindow()` → `NSApp.keyWindow?.close()`, других правок окна нет |
+| Лог-строка перед `runModal()`, `popoverLog`, `privacy: .public` на каждой интерполяции, с `NSApp.isActive`, наличием key-окна и его уровнем | выполнен | дифф, раздел «что попадёт в лог-строку» |
+| `NSApp.activate()` сохранён | выполнен | дифф: вызов на месте, перенесён на текущий виток вместе с комментарием |
+| Валидатор раунда 3, сильная ссылка `addPanelValidator`, оба запасных гарда — без изменений | выполнен | в диффе нет ни одной строки из `AddApplicationValidator` и из обоих гардов |
+| Настройка панели (`allowedContentTypes`, `directoryURL`, `prompt`, `message`) — без изменений | выполнен | строки настройки в диффе только как контекст |
+| Резолв имён раунда 4 — без изменений | выполнен | `resolveDisplayNames()` в диффе отсутствует |
+| Порядок строк списка — без изменений | выполнен | порядок считает `PopoverViewModel` в ядре; ядро не тронуто |
+| `panel.level` не поднят | выполнен | уровень только читается в лог-строку; присваиваний нет |
+| Ноль `warning:` в debug и release | выполнен | `WARNINGS_DEBUG=0`, `WARNINGS_RELEASE=0` |
+| 83 теста в 8 сьютах | выполнен | вывод `swift test` |
+| Панель открывается по Add App…, и **первый** клик выбирает приложение — на первом нажатии после запуска и на последующем в той же сессии | **требует человека** | приложение не запускалось |
 
 ## Не запускалось
 
-**Приложение не запускалось** — пакет это запрещает, и `./build.sh` собран, но бандл не
-открывался.
+**Приложение не запускалось** — пакет это запрещает. Ни одного запуска
+`build/Terminator.app/Contents/MacOS/Terminator`, ни одного обращения к `/usr/bin/log`, ни
+одной записи в `~/Library/`.
 
-**Юнит-теста нет и не заводился.** Резолв зависит от `NSWorkspace`, LaunchServices и от того,
-что установлено на машине; мок-`NSWorkspace` запрещён не-целями карточки, а выносить резолв в
-ядро ради тестируемости запрещено пакетом и противоречит форме ядра (окружение оно не читает
-по конструкции). Замена — пробник в скретчпаде выше: он доказывает поведение самих API на
-этой машине, но **не** доказывает вёрстку строки.
+**Юнит-теста нет и быть не может.** Ни `NSOpenPanel`, ни `NSApp.activate()`, ни уровни окон,
+ни key-статус headless не воспроизводятся; тест на них был бы тестом заглушки, а не
+поведения. Это записано в пакете и в амендменте 6.
 
-**Остаточный риск** — целиком в вёрстке: что именно увидит человек, тестом здесь не
-устанавливается вовсе.
+Остаточный риск честный: оба шва и лог-строка проверены только компилятором и гейтами.
+Работоспособность самой панели проверяется человеком.
 
-### Пункт 16 чеклиста — засчитывает человек
+### Что должен проверить человек
 
-`./build.sh && open build/Terminator.app`, затем открыть поповер и проверить построчно:
-
-1. каждая строка показывает читаемое имя приложения первой строкой, обычным (не моноширинным)
-   шрифтом, а под ним — идентификатор мелким моноширинным серым;
-2. `com.apple.printcenter` читается как **Print Center**, `org.khronos.gltf.glTFViewer` — как
-   **glTF Viewer**;
-3. правило неустановленного приложения показывает **идентификатор** первой строкой и **не**
-   показывает ни пустого имени, ни идентификатора дважды (проверяется правилом, приложение
-   которого удалено или переименовано);
-4. наведение на первую строку по-прежнему показывает подсказку с полным идентификатором;
-5. порядок строк не изменился — по остатку, затем по идентификатору, не по имени;
-6. отсчёт в статусных строках продолжает тикать раз в секунду (резолв ничего не заморозил).
+1. `./build.sh && ./build/Terminator.app/Contents/MacOS/Terminator`.
+2. **Первое** нажатие Add App… после запуска: панель открывается, поповер при этом
+   закрывается, и **первый** клик по приложению в панели его выбирает (не тратится на
+   активацию окна).
+3. Отмена панели, затем **повторное** нажатие Add App… в той же сессии: пункт меню-бара
+   открывает поповер **одним** нажатием (это проверка того, что `close()` не рассинхронизовал
+   состояние сцены), панель снова открывается и снова первый клик выбирает.
+4. Обе лог-строки прочитать:
+   `/usr/bin/log show --predicate 'subsystem == "com.svvoff.terminator" AND category == "store"' --last 10m --info`
+   — или в реальном времени
+   `/usr/bin/log stream --predicate 'subsystem == "com.svvoff.terminator" AND category == "store"'`.
+   Ожидается `appActive=true keyWindow=none|present keyWindowLevel=…`; `keyWindowLevel=25`
+   означал бы, что поповер остался, `appActive=false` — что активация не доехала.
+5. Добавленное правило появилось в списке после закрытия панели (запись уехала на второй
+   виток вместе с `apply(_:)`).
 
 ## Проверка скоупа
 
 ```
-$ git status --porcelain
+$ git status --short
  M Sources/Terminator/PopoverModel.swift
- M Sources/Terminator/PopoverView.swift
  M docs/ai/handoff/current-task-packet-popover.md
  M docs/product/backlog/tasks/in-progress/TASK-006-menu-bar-popover.md
 ```
 
-Изменены ровно два файла, разрешённые пакетом (плюс этот отчёт). Два документа помечены
-модифицированными до начала моей работы — это правки оркестратора: пакет и карточка. Я их не
-открывал на запись.
+Правки в пакете и в карточке — работа оркестратора, существовавшая до начала этого раунда; я
+их не касался. Мною изменён ровно один файл продакшн-кода —
+`Sources/Terminator/PopoverModel.swift` — плюс этот отчёт.
 
-Запрещённые зоны не тронуты: `Sources/TerminatorCore/` и `Sources/TerminatorAppKit/` целиком,
-`TerminatorApp.swift`, `Package.swift`, `Packaging/Info.plist`, `build.sh`, подпись, keychain,
-путь quit, Apple Events, расчёт дедлайна, модель правил, всё про учёт фокуса, `~/Library/` в
-любом виде. `NSApp.activate()` из раунда 2 и валидатор панели из раунда 3 остались дословно
-такими же — в диффе их нет. Соседние потоки (`-focus`, `-loginitem`, безымянный) не читались.
+Не тронуто: `Sources/TerminatorCore/` целиком, `Sources/TerminatorAppKit/` целиком,
+`Sources/Terminator/TerminatorApp.swift`, `Sources/Terminator/PopoverView.swift`,
+`Package.swift`, `Packaging/Info.plist`, `build.sh`, подпись, keychain, путь quit, код Apple
+Events, расчёт дедлайна, модель правил, всё, что относится к учёту фокуса (TASK-007),
+`docs/` кроме этого отчёта, `~/Library/`.
 
-Временные файлы — только в скретчпаде сессии, вне репозитория.
+Второй файл не понадобился: закрытие поповера выражается средствами AppKit из модели и не
+требует ни биндинга из сцены, ни правки `TerminatorApp.swift`.
 
 ## Риски
 
-1. **Вёрстка не проверена глазами.** Строка стала двухуровневой в одной ветке и одноуровневой
-   в другой; как это выглядит на настоящем списке, устанавливает только человек. Строка стала
-   выше — при большом списке поповер вырастет по высоте.
-2. **Стоимость открытия выросла на N запросов в LaunchServices**, где N — число правил.
-   Запрос синхронный, и на четырёх правилах он незаметен; на списке в сотни правил открытие
-   поповера подтормаживало бы. Ограничения на число правил в продукте нет — но и списка в
-   сотни правил у MVP нет.
-3. **Имя может разойтись с логом и конфигом.** Именно поэтому идентификатор остался видимым;
-   риск снят конструкцией, а не дисциплиной чтения.
+1. **Адресация окна через `NSApp.keyWindow`.** Если в момент вызова key-окном окажется не
+   поповер, закроется не то окно. Сегодня это невозможно — сцена одна и других окон нет, —
+   но появление второго окна в будущем сделает эту форму неверной. Лог-строка это поймает:
+   она печатает наличие и уровень оставшегося key-окна.
+2. **`close()` и состояние сцены SwiftUI.** Ожидание — что SwiftUI синхронизирует состояние
+   показа по `willCloseNotification`. Если это не так, симптом будет ровно один и заметный:
+   поповер после добавления откроется только со второго нажатия. Пункт 3 чеклиста написан
+   именно на этот случай.
+3. **Один виток — достаточно ли.** `DispatchQueue.main.async` даёт ровно один виток. Если
+   активации нужен не один, `appActive=false` в логе покажет это прямо, и следующим шагом
+   будет ожидание `NSApplicationDidBecomeActiveNotification`, а не ещё одна догадка.
+
+### Отдельно: достаточно ли швов 1 и 2 — доложено, не сделано
+
+Пакет требует доложить, если швы кажутся недостаточными, и запрещает поднимать
+`panel.level`. Докладываю: **оснований считать швы недостаточными у меня нет**, и уровень
+панели я не поднимал.
+
+Причина не в вежливости к запрету, а в том, что оба шва снимают названные причины целиком, а
+не ослабляют их: конкурент за key-статус не «перебивается», а закрывается; активация не
+«ускоряется», а получает виток на то, чтобы доехать. Третьей причины, которую пришлось бы
+компенсировать уровнем, из свойств API не следует. Если панель подведёт в четвёртый раз,
+данных для решения теперь ровно столько, сколько нужно: `appActive` отделяет несработавший
+шов 1, `keyWindowLevel` — несработавший шов 2, `panelLevel` даёт исходную точку для самого
+решения об уровне.
 
 ## Незавершённое и follow-up
 
-Ничего не осталось незавершённым в границах амендмента 5.
-
-Возможные темы для оркестратора — **решения не мои**:
-
-1. Расхождение таблицы амендмента 5 с измерением через `Bundle(url:)` по
-   `org.khronos.gltf.glTFViewer` (см. выше). Вывод амендмента верен, обоснование одной ячейки
-   — нет. Правка карточки — зона оркестратора.
-2. Поведение вторичной строки при нехватке ширины (перенос против усечения) выбрано мной
-   внутри границ пакета и названо явно; если предпочтителен другой вариант — это одна строка.
+- Пункт 3 ручного чеклиста (первый клик выбирает — на первом и на повторном нажатии) и
+  чтение лог-строки для обоих случаев остаются человеку. Самосертифицировать их я не вправе.
+- Порядок строк списка — отдельный раунд, уже решённый оркестратором; в этом диффе не
+  затронут.

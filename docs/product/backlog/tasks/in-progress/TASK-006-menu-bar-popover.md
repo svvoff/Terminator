@@ -779,3 +779,95 @@ Manual checklist gains **item 16**: every row shows a readable application name 
 identifier; `com.apple.printcenter` reads as *Print Center* and `org.khronos.gltf.glTFViewer` as
 *glTF Viewer*; a rule whose application is not installed still shows its identifier and does not
 show an empty name.
+
+
+---
+
+## Amendment 6 · 2026-08-31 — the add-app panel loses the focus race; two seams granted
+
+Third amendment about the same twelve lines of code, and that is the reason this one grants
+instrumentation as well as a fix: two blind corrections have already been spent here.
+
+### What the author observed
+
+After round 2 the author confirmed the panel worked. It has now regressed, and the answer to
+*when* is **immediately, on the very first Add App… press** — not after the validation sheet of
+round 3, and not only on repeat openings.
+
+### Why round 2's fix is not wrong but is insufficient
+
+`NSApp.activate()` is **asynchronous**. It requests activation from the window server;
+activation itself lands on a later runloop turn, which is why
+`NSApplicationDidBecomeActiveNotification` exists at all. `panel.runModal()` is called on the
+**same** turn and blocks it. So the panel is presented before the activation it depends on has
+arrived — sometimes activation wins, sometimes the panel does. That is a race, and it explains
+both observations: it worked once, and it fails now, with nothing between the two having changed
+in that code path.
+
+The second half is the one the author identified: the `MenuBarExtra` popover window lives at the
+status-bar window level and stays a competitor for key status for as long as it is on screen.
+Activating the application does not remove that competitor.
+
+Neither half is a guess about AppKit's internals: the first follows from `activate()` being a
+request rather than a state change, the second from the popover being a window that is still open.
+
+### Seam 1 — the panel is presented on a later runloop turn than the activation
+
+`addApplication()` may split: activation and popover dismissal stay on the current turn, and
+everything from constructing the `NSOpenPanel` onward moves into a `DispatchQueue.main.async`
+block. The whole remainder of the method — panel configuration, `runModal()`, both fallback
+guards, rule construction and `apply(_:)` — moves with it, unchanged in substance.
+
+This is the fix for the race and it is the one that must not be skipped in favour of the
+cosmetically simpler one.
+
+### Seam 2 — the popover is dismissed before the panel is presented
+
+The author's proposal, and it is correct: close the popover first, then open the dialog.
+
+The `MenuBarExtra` window is the key window while the popover is open. Dismissing it removes the
+higher-level competitor entirely, rather than hoping the panel out-ranks it.
+
+**This is the one place in this card where the popover's transient-window behaviour may be
+touched** — every earlier amendment forbade it, and that prohibition stands everywhere else. It
+is lifted here only to *close* the popover on this one path, never to pin it open, re-style it or
+re-create it.
+
+### Required instrumentation — this round reports, it does not only fix
+
+Two blind rounds have been spent on this. A line goes into the log immediately before
+`runModal()`, category `store` through the existing `popoverLog`, `privacy: .public` on every
+interpolated value, carrying at minimum:
+
+- whether the application is active (`NSApp.isActive`);
+- whether a key window remains, and its window level.
+
+This is a diagnostic channel for a defect that has now cost three rounds, not decoration. If the
+panel misbehaves a third time, the next decision is made from that line instead of from a fourth
+guess. DEC-004 is not in play: it governs what the product announces before quitting an
+application, and this is a log line about window state.
+
+### What must not change
+
+- No `NSAlert`, no window of our own, no second modal surface.
+- The round-3 validator, its strong stored reference and both fallback guards stay exactly as
+  they are.
+- The panel's configuration — content types, `directoryURL`, `prompt`, `message` — is untouched.
+- The popover is dismissed, never pinned, re-styled or re-created.
+- `NSApp.activate()` stays. It is necessary and was never the error; it was simply not sufficient.
+
+### What is explicitly permitted only as a last resort
+
+Raising the panel's own `level`. If seams 1 and 2 together are believed insufficient, that
+belief is **reported, not acted on** — window levels interact with the rest of the system in ways
+this card has no measurement for, and a third silent guess is exactly what this amendment exists
+to prevent.
+
+### Validation
+
+No unit test. `NSOpenPanel`, `NSApp.activate()` and window levels cannot be constructed or driven
+headlessly; `swift test` stays at 83 tests in 8 suites.
+
+Checklist **item 3 is reinstated and sharpened**: pressing Add App… opens the panel and the
+**first** click selects an application — on the first press after launch, and again on a later
+press in the same session. The log line above is read back for both.
