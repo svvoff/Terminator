@@ -683,6 +683,53 @@ Because this product shows no warning before closing an app, the log is the *ent
 
 ---
 
+## 15. Focus interruption signals: lock, sleep and fast user switching
+
+Measured 2026-08-31 and 2026-09-01 (TASK-007, manual checklist items 3–5), macOS 26.6.2
+(25G83), arm64. Every signal a focus tracker needs was observed live, and every one arrived
+paired with its partner.
+
+The six `NSWorkspace` notifications — `willSleep`/`didWake`, `screensDidSleep`/`screensDidWake`,
+`sessionDidResignActive`/`sessionDidBecomeActive` — all fire.
+
+**The two undocumented ones fire too.** `com.apple.screenIsLocked` and
+`com.apple.screenIsUnlocked` are distributed notifications Apple does not document. Both
+arrived, paired, on every lock and unlock. Had they not, a locked screen would have counted as
+focus and inflated every recorded number with no symptom whatsoever.
+
+**Lock and fast user switching are disjoint signals for two states that look identical.** The
+login screen reached by ⌃⌘Q and the one reached by fast user switching → *Login Window…* are the
+same picture and different states:
+
+| Action | `screenIsLocked` | `sessionDidResignActive` |
+|---|---|---|
+| ⌃⌘Q — lock screen | fires | **never** |
+| Fast user switching → Login Window | **never** | fires |
+
+Neither substitutes for the other. Watching only one silently counts the other state as focus.
+
+**Pause reasons must be a set, and the measurement shows the cost of a boolean.** Sleeping the
+Mac raised three reasons at once, and on wake they cleared one at a time — `system-sleep` at
+18:56:18.090, `display-sleep` at 18:56:18.913, `screen-locked` only at 18:56:28.171. A single
+flag would have restarted accrual **10.081 s early**, with the screen still locked. The same
+shape recurred twice more in three hours, at 7.038 s and 3.733 s.
+
+**A screen lock is not necessarily a system sleep.** A ⌃⌘Q lock held for 60.391 s produced
+`screenIsLocked` plus a 2.285 s `screensDidSleep`, and **no** `willSleep` at all — so the
+suspending clock ran the whole time (§9). There the signal is the only thing that can stop
+accrual; the clock will not do it.
+
+**A `Timer` armed for midnight is displaced by sleep, exactly as §9 predicts.** Armed at 18:14
+for the coming midnight, it had still not fired by 09:25 the next morning after a night of
+system sleep. The day key in the file was nevertheless correct, because it is derived from a
+wall reading taken at accrual time and not from the timer.
+
+> Consequence: watch all four pause families and keep the outstanding reasons in a **set**.
+> Never derive a calendar day from the rollover signal — that signal is a flush trigger, and
+> nothing more.
+
+---
+
 ## Questions TASK-001 settled
 
 Answered on the author's machine on 2026-08-26, macOS 26.5.2 (25F84), arm64. Raw transcripts
