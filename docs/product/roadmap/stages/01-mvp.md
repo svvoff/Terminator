@@ -2,8 +2,44 @@
 
 ## Status
 
-Active. Opened 2026-08-26, directly after Stage 0 (Discovery). Eight ready tasks,
-TASK-001 through TASK-008, across EPIC-01 to EPIC-04.
+**Active — eight cards accepted, one deferred, three of five exit criteria unmet.** Opened
+2026-08-26. Every card that was worked on was accepted by 2026-09-14 (TASK-001 through TASK-008,
+plus TASK-009 added mid-stage as a spike), and TASK-005 stands deferred — which is why criterion 1
+is **not** met as written.
+
+The stage was briefly marked `done` on 2026-09-14 and **that was reverted the same day**: closure
+had been declared on card status alone, without checking this section. What is actually missing:
+
+- **Criterion 1** needs an explicit supersede, not silence. TASK-005 is deferred rather than done
+  because TASK-009 measured its subject out of existence — the quit path asks for no Apple Events
+  consent at all. That reasoning is sound but has to be recorded as superseding the criterion.
+- **Criterion 2 is not met.** It asks for a full week of ordinary use with **at least three
+  enabled rules**. The collected data holds ten days, but three applications appear on exactly one
+  of them (2026-09-14, and only because Finder was added for two minutes during a checklist).
+  Most days carry one rule.
+- **Criterion 3** inherits that gap: the per-app week it describes is a week of one app.
+- Criteria 4 and 5 are met — the terminal `refused` state is surfaced in the popover rather than
+  dropped, and DEC-008's review is recorded on the decision card (2026-09-14).
+
+**What closing the stage now requires — two different kinds of work, and conflating them is how
+the premature closure happened:**
+
+1. **Elapsed time**, nobody's task: a week of ordinary use with three or more enabled rules, which
+   also fills criterion 3.
+2. **Documentation, outstanding and unassigned**: the criterion-1 supersede has to be *written* —
+   a recorded statement that TASK-005 stays deferred because TASK-009 measured its subject out of
+   existence, and that this satisfies criterion 1 as amended. Until someone writes it, waiting out
+   the week still leaves the stage unclosable.
+
+**Seven of the eight accepted cards carried `manual-checklist`**, and on three of them the
+checklist found a defect that neither the tests nor the review had caught: TASK-004 (a phantom
+session that 44 unit tests missed), TASK-006 (four separate defects, which cost five of its six
+rounds), and TASK-008 (a status line promising a next login that could never come). TASK-001 and
+TASK-009 were spikes and produced no product code to find defects in.
+
+That is the stage's most transferable result: on this product the human pass was not a
+formality — and every one of those defects sat in the same place, where the code meets AppKit or
+the system.
 
 ## Goal
 
@@ -122,7 +158,10 @@ behaves against a running target — before any engine code is written against a
   is the build's. Signing is the last mutation of the bundle (findings §6).
 - **Dev loop.** `./build.sh && ./build/Terminator.app/Contents/MacOS/Terminator`. Never
   `swift run`: a bare executable is `.prohibited` and can never show a menu bar item
-  (findings §7).
+  (findings §7). **Precondition: no instance is already running** — check
+  `pgrep -f "build/Terminator.app"` and quit what it finds. A direct exec bypasses
+  LaunchServices, the only thing that refuses a second copy, so it starts a second instance
+  beside any running one and the two silently overwrite each other's focus data (findings §12).
 - **Product.** Real daily use by the author is the top-level validation. Nothing else decides
   the hypothesis.
 

@@ -112,9 +112,11 @@ private struct LaunchAtLoginRow: View {
     private var statusText: String {
         guard let status = model.loginItemStatus else { return "status not read yet" }
 
-        // Сообщает ли система включённое состояние сразу после записи файла или только после
-        // следующего входа — разведкой не установлено (findings §12). Оба прочтения обязаны
-        // рендериться нормальным состоянием: это не отказ и не ошибка.
+        // Наступает ли `enabled` сразу после записи файла или только после следующего входа —
+        // измерено (findings §12): до входа, но не мгновенно, через переходный `3`. Оба
+        // прочтения обязаны рендериться нормальным состоянием: это не отказ и не ошибка.
+        // Флаг ниже ставится только там, где регистрация действительно может вступить сама,
+        // — из `disabledByUser` он не ставится никогда (`registrationCanTakeEffect`).
         if model.loginItemRegistrationPending {
             return "registered — takes effect at the next login"
         }

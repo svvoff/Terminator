@@ -636,6 +636,110 @@ The legacy plist references a **path**, not a cdhash, so it survives every rebui
 helper if it exits non-zero, which would resurrect a deliberately quit Terminator and violate
 DEC-006.
 
+### Measured 2026-09-14, macOS 26.6.2 — TASK-008 manual checklist
+
+Three things the probe above could not see, because it only ever read other people's agents.
+
+**`enabled` arrives before the first login, but not at once.** After the product wrote its own
+plist, `statusForLegacyPlist` returned `3` four milliseconds later and `1` twenty-eight minutes
+fifty-four seconds later, with **no login in between** (measured 2026-08-29). The settling time
+itself was not taken; the bracket is (0, 29 min]. So `3` on the legacy path is a *transient*, and
+mapping it to a terminal meaning would have broken the toggle at the exact moment of switching
+on.
+
+**A user's switch-off in System Settings outranks the file, and rewriting the file does not
+clear it.** Turning the item off in System Settings → General → Login Items moved the status to
+`2` (`requiresApproval`). The product then removed the plist (`0`, notRegistered) and wrote it
+again in full — 434 bytes, identical content — and the status came straight back as **`2`**. The
+only way back to `1` was the same System Settings switch. The consequence for the product is
+direct: after a successful write, "takes effect at the next login" is false whenever the status
+reads `2`, and TASK-008 amendment 2 makes the domain say so.
+
+**Turning the item back on starts a second instance.** Enabling the item bootstraps the agent,
+and `RunAtLoad = true` makes launchd start the executable **immediately** — while an instance
+started earlier through LaunchServices is still running. Two menu bar icons, two engines, two
+writers:
+
+```
+43180  started 13:33:31  launchctl: application.com.svvoff.terminator.413943323…   (open)
+68475  started 13:36:47  launchctl: com.svvoff.terminator, type = Submitted         (launchd)
+```
+
+LaunchServices is what normally refuses a second copy of an `.app`, and launchd bypasses it by
+execing the binary directly (§7). So `open` never duplicates and launchd always can. Neither file
+was corrupted — `writeDurably`'s temp + rename + fsync held, both JSONs stayed valid, no stray
+temp files — but `FocusStore.flush` loads the file **once** and thereafter adds to what it
+remembers, so two instances silently overwrite each other's accrued seconds. Quitting via
+`osascript … to quit` addressed the launchd instance, not the LaunchServices one;
+`launchctl kickstart gui/<uid>/com.svvoff.terminator` is what restores the single, login-owned
+process.
+
+**A launchd start was killed once by a codesigning launch constraint. The mechanism is not
+established.** Twenty-eight seconds after `build.sh` re-signed the bundle, launchd's start died
+after **2 ms**:
+
+```
+termination: { "namespace": "CODESIGNING", "indicator": "Launch Constraint Violation" }
+exception:   EXC_CRASH, SIGKILL (Code Signature Invalid)
+parentProc:  launchd
+```
+
+The binary was fine: `codesign --verify --strict` returned 0, and the same bundle launched
+normally through `open` minutes later. The very next `launchctl kickstart` succeeded and that
+process then ran indefinitely.
+
+**Reproduced, and the mechanism is the cdhash after all — but only a *clean* rebuild moves it.**
+Two experiments, and the first one nearly produced the wrong conclusion.
+
+An **incremental** `./build.sh` over unchanged source leaves the bundle byte-identical:
+`CandidateCDHash sha256=cad1fcf155…` before and after, and a `kickstart` on that bundle produced
+no crash at all. Read alone, that looks like a refutation of the stale-constraint story. It is
+not — it is a negative result about the wrong case, because identical bytes are exactly what an
+unchanged source should produce.
+
+A **clean** rebuild (`rm -rf .build && ./build.sh`) does change it:
+
+```
+CandidateCDHash sha256=cad1fcf1551831709eb414fc1a29330906366483    before
+CandidateCDHash sha256=92785268c9b6ca7bb02e81d53289410ac75f55c2    after rm -rf .build
+```
+
+Same source, same signing identity, different hash — so the build is **not** reproducible across
+a clean tree, only across incremental rebuilds. And with the hash moved, the next launchd start
+died exactly as before: `Launch Constraint Violation`, SIGKILL, **0 ms**, parent `launchd`, while
+`codesign --verify --strict` returned 0 and `open` launched the same bundle fine.
+
+The kill is **not** a one-off, and "the very next attempt succeeded" was luck of the earlier run.
+Observed attempts, and only these:
+
+```
+18:30:49  kickstart -k  → killed, crash report, 0 ms
+~18:30:55 kickstart     → no process
+18:31:25  kickstart     → running
+```
+
+**Why the third one worked is not established.** It may be the constraint expiring on its own
+after tens of seconds, or the attempts themselves refreshing system state — the control that
+separates those, waiting without attempts and then starting once, was not run. The distinction is
+not academic: a real login makes **one** attempt and has no retry, so "it clears on its own" would
+be a much more comforting claim than anything measured here. No re-registration was needed in
+either case.
+
+> Consequence, and it is operational rather than theoretical. `KeepAlive` is deliberately absent
+> (DEC-006), so nothing retries a start that dies. A login landing inside that window finds
+> Terminator absent, with a crash report as the only evidence. After a **clean** rebuild, do not
+> assume the login item will bring the app up — start it and check. After an incremental one,
+> the hash does not move and the problem does not arise.
+
+What remains unknown is narrow and worth stating exactly: **why the third attempt succeeded.**
+The failure itself is reproduced and explained. This is no longer the open-ended "seen once,
+unexplained" observation it was earlier on 2026-09-14 — that earlier reading, and the
+stale-cdhash refutation that went with it, were both wrong and are superseded by the experiment
+above.
+
+(The subject that reappeared 31 s after a quit, §4, remains a separate and still unexplained
+observation; this one is no longer in that family.)
+
 ## 13. Swift 6 and the shape that makes this testable
 
 `swift-tools-version: 6.2` puts every target in Swift 6 language mode. A file-scope `var` is a

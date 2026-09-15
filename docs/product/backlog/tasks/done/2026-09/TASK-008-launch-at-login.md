@@ -234,3 +234,92 @@ the legacy path `.notFound` has never been observed, so mapping it to a measured
 inventing a measurement. It surfaces explicitly, carrying the raw number into the log, and
 checklist sub-item 5 will report what the system actually returns.
 
+
+
+---
+
+## Amendment 2 · 2026-09-14 — the row promised a next login that could never come
+
+Written by the orchestrator at acceptance, after checklist sub-item 5 ran. The code half was
+accepted on 2026-08-29; this is a defect the checklist found in it, fixed in the same sitting and
+recorded here rather than patched silently.
+
+### What the author observed
+
+Sub-item 5 asks the app to report the disabled-by-user case. The author turned Terminator off in
+System Settings → General → Login Items, restarted the app, clicked the launch-at-login toggle
+off and on again, and reported seeing no message about the state at all.
+
+The log said otherwise, and it said it precisely:
+
+```
+13:23:08.909 login item status: systemStatus=2 status=disabledByUser
+13:23:10.894 login item removed
+13:23:10.895 login item status: systemStatus=0 status=notRegistered
+13:23:11.687 login item written bytes=434
+13:23:11.689 login item status: systemStatus=2 status=disabledByUser
+```
+
+The status was read correctly every time. What was wrong was what the row did with it.
+
+### Why it happened
+
+`readLoginItemStatus(registrationWritten:)` set the pending flag from the bare fact of a write:
+
+```swift
+loginItemRegistrationPending = registrationWritten && status != .enabled
+```
+
+and `statusText` consults that flag **before** it switches on the status. So after the toggle
+rewrote the plist, the row said *"registered — takes effect at the next login"* on top of a
+status of `disabledByUser` — and that sentence is false by construction. The system remembers the
+user's choice above the file; the registration will not take effect at the next login or any
+login, until the user turns it back on where they turned it off.
+
+The measurement that settles it is in the same transcript: the plist was rewritten in full
+(`bytes=434`) and `systemStatus` came back `2` regardless.
+
+This is the same class that cost TASK-006 five rounds — the surface exists and is correct, but on
+one particular path the code does not reach it. Here the correct text about System Settings
+was already written and already right; a flag simply covered it.
+
+### The fix
+
+The decision moves into `TerminatorCore` as a pure function of the status, where a test can reach
+it without `ServiceManagement`:
+
+```swift
+public var registrationCanTakeEffect: Bool {
+    switch self {
+    case .enabled, .disabledByUser: false
+    case .notRegistered, .unknown: true
+    }
+}
+```
+
+`enabled` is unchanged behaviour (nothing to take effect). `disabledByUser` is the single case
+that changes. `notRegistered` and `unknown` stay true — `unknown(3)` is the transient the
+2026-08-29 measurement caught turning into `enabled` with no login in between, within the bracket
+(0, 29 min], and that promise is the honest one there.
+
+The switch is exhaustive with no `default:`, so a future case breaks the build instead of
+silently inheriting "may take effect".
+
+### Scope
+
+`LoginItem.swift` in `TerminatorCore`, one line in `PopoverModel.readLoginItemStatus`, and one
+test. No new log lines, no change to the plist, the toggle geometry or `gesture(for:)` — the
+existing guarantee that `.disabledByUser` never yields `.register` was already correct and is
+untouched.
+
+### Validation
+
+`swift test` moves from **82 to 83 tests in 8 suites**. The new test
+`disabledByUserNeverPromisesTheNextLogin` was checked by mutation: with the predicate reverted to
+the old behaviour it fails on exactly the `disabledByUser` expectation and nothing else.
+
+Executed inline by the orchestrator. `execution-policy.md` routes production code to the executor
+by blast radius, but permits an inline change provided the orchestrator writes the execution
+report itself and reviews it in a separate turn; both were done. The route was chosen on the
+third axis, cost of verification: the `disabledByUser` state was live on the machine at that
+moment and would have been gone by the time a packet was written.

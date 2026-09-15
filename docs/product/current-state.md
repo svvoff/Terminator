@@ -11,74 +11,96 @@ an adversary — the product creates friction, not a prison.
 
 ## Current stage
 
-Stage 1 — MVP: the limiter plus silent focus data collection. Stage 0 (discovery) is done.
-Stages 2 (statistics UI), 3 (scheduling), 4 (distribution) are future.
+Stage 1 — MVP. **No card is left, and the stage is still open: three of its five exit criteria
+are unmet.** The limiter and silent focus-data collection both ship and both run on the author's
+own machine. Stage 0 (discovery) is done. Stages 2 (statistics UI), 3 (scheduling), 4
+(distribution) are future and have no cards.
+
+Eight of the milestone's nine cards were accepted by 2026-09-14; the ninth, TASK-005, was deferred
+because TASK-009 measured its subject away rather than because it was dropped — which is precisely
+why **criterion 1 is not met either**: it asks for TASK-001 through TASK-008 done, and a deferral
+is not a done. The supersede is justified but has to be *written* before it counts. Criterion 2
+asks for a full week of ordinary use with **at least three enabled rules** (three appear on
+exactly one of the ten collected days), and criterion 3 depends on it. The stage file lists all
+five and says which are
+met; it was briefly marked `done` on 2026-09-14 and reverted the same day, because closure had
+been declared on card status alone.
 
 ## Current focus
 
-**TASK-004 is done** (accepted 2026-08-29), and with it the product's central mechanic. It
-watches, it counts, and it quits — on a live machine, not in tests. The engine is a pure
-synchronous reducer in `TerminatorCore`; detection is KVO on `runningApplications` plus a 30 s
-reconciliation sweep; the anchor is `p_starttime`; the deadline is an absolute `Date`
-re-evaluated on every tick and every sweep. 45 tests in 5 suites, and a manual checklist of
-eight items run by the author on his own machine.
+**No card is in flight, and the milestone is still open.** `tasks/ready/` and
+`tasks/in-progress/` are empty for the first time in the project's life, but Stage 1 has two
+unmet exit criteria that no card covers — they need elapsed time on the author's machine, not
+work. What the product does now, it does on a live machine
+without supervision: it has been resident for over a week, comes up at login through launchd, and
+the author uses it on himself rather than as a test fixture.
 
-Two of those items are worth carrying forward. **Item 1 found a defect 44 unit tests missed** —
-a sweep landing between a process's death and its disappearance from `runningApplications` took
-the `launchDate` fallback, built a session key that did not match, and created a phantom expired
-session. The fallback is gone (card amendment 3), and findings §3 now records why a fallback
-there is not merely unreachable but wrong. **Item 8 returned a negative result**: timer
-throttling did not happen at all — the 5 s tick held full cadence on the fifth hour of the
-process, with the display dark for 45 minutes and no HID event for an hour. The overshoot was
-3.540 s where the tick grid predicted +3.74 s and the sweep grid +28.74 s, so the tick caught it
-and **the sweep — the construction findings §9 prescribes against throttling — was never
-loaded.** It is recorded in §9 as a negative result, with an explicit warning not to cite it as
-proof the sweep works.
+**TASK-006 is done** (accepted 2026-09-14), and with it the product's only surface. Six rounds of
+code, five of them fixes for defects a manual checklist found, and every one of those in the same
+layer — where the code meets AppKit. The thirteen-item checklist closed with numbers rather than
+impressions: the empty state by a `rules=0 bytes=45` write, the limit editor by **zero**
+`config written` lines and a byte-for-byte identical file, the row order by the rows arriving in
+the exact reverse of the order they were added, quarantine by an unchanged md5 across four
+refused edits.
 
-**TASK-009 is done** (accepted 2026-08-28, measured 2026-08-27), and it settled the question
-that was hanging over the whole expiry path: **quitting another application needs no Apple
-Events consent at all.** Five subjects spanning first-party/third-party, sandboxed/unsandboxed,
-Mac App Store/direct, document-based/not and scriptable/not; three consent states each;
-seventeen sends of the hand-rolled `'aevt'/'quit'`, seventeen deaths — including every send
-made while consent was **explicitly denied**. Findings §5 carries the table.
+Two of its items are worth carrying forward. **Items 8 and 9 were proved by the contrast between
+two log lines**, not by watching the countdown: changing a limit writes the config and produces
+no `countdown-started`, while toggling a rule writes the config and does produce one. Changing a
+limit does not re-anchor, toggling does — and the two are indistinguishable by eye. **Item 15
+(Finder) gave more than it was asked for**: the author let the cycle run twice, and the system
+restarted Finder after 8.7 s and 10.5 s, each time with a fresh `p_starttime` and a full new
+limit. That incidentally supplied an explainable twin for the old observation of a subject
+returning 31 s after a quit (findings §4).
 
-For the limiter, the permission cost is therefore **zero**, and `TASK-005` — pre-warm, per-app
-consent state, deep link into System Settings — had nothing left to do. **It was deferred on
-2026-08-28**, and with it went the consent surface of TASK-006 and the justification for
-TASK-004's `.appFirstObserved` seam; both cards carry a dated amendment saying so. The five
-documents that still described consent as the product's standing permission cost — EPIC-02,
-DEC-005, DEC-006, DEC-002, DEC-004 — were corrected in the same pass, each edit marked in place
-with what it used to say and which measurement refuted it.
+**TASK-008 is done** (accepted 2026-09-14), though its acceptance was declared, withdrawn and
+declared again the same day: a review pointed out that sub-item 5 asks the app to *report* the
+disabled-by-user state, while all that had been confirmed was that it *read* it, in a log line.
+The card went back to `in-progress/` until the run was repeated on the fixed build and the text
+quoted. Its sub-item 3 closed with no human in the loop: on 8 September at 09:07:02 the system
+brought the app up itself — `PPID 1`, listed by `launchctl` under `com.svvoff.terminator` — and
+it then ran six days straight without a single failure.
 
-The same spike refuted findings §4 in passing: `NSWorkspace.runningApplications` **lags the
-kernel**, by up to 19 s on one subject and by seconds on three of four of its trials, while the
-other four subjects stayed within 16 ms. Death is confirmed on the kernel, never on the
-workspace list — which matters directly to TASK-004, whose detection is KVO on that list.
+**Sub-item 5 found a real defect, and it was fixed rather than noted.** With the login item
+turned off in System Settings, the row answered a toggle click with *"registered — takes effect
+at the next login"* — false by construction, because the system remembers the user's choice above
+the file. The predicate moved into `TerminatorCore` as a pure function of the status, covered by
+a test that was checked by mutation. Tests went from 82 to 83. The reasoning is amendment 2 on
+the card.
 
-Before it, **TASK-003** gave the product its durable configuration and its first unit tests:
-22 synchronous tests in four suites, 0.09 s, no sleeps. The rules file is
-`~/Library/Application Support/com.svvoff.terminator/config.json` at `schemaVersion: 1`, `rules`
-is a JSON object keyed by bundle identifier, the limit is a tagged object valid only as whole
-minutes from 1 to 480, and `enabledAt` is an ISO 8601 string — absent means disabled, with no
-boolean anywhere (DEC-001). An unparseable file, a future `schemaVersion` or a rule that breaks
-a model invariant puts the store in **quarantine**: bytes untouched, last good config kept in
-memory, `save` throws, and `ConfigStore.quarantine` exposes the reason for TASK-006 to render.
-The verbatim bytes and the shared `writeDurably(_:to:)` contract are in
-`docs/ai/execution-log/archive/2026-08.md` — the TASK-003 entry, moved there by the
-2026-08-28 rotation.
+Two measurements came out of that card beyond its checklist. **Rewriting the plist does not clear
+a user's switch-off**: the file was removed and written again in full, 434 bytes, and the status
+came straight back as `requiresApproval`. **Turning the item back on starts a second instance** —
+observed twice, three minutes apart and nine seconds apart — because `RunAtLoad` makes launchd
+exec the binary directly, bypassing the LaunchServices check that normally refuses a second copy.
+**And one launchd start was killed by a codesigning launch constraint** — 2 ms, `Launch
+Constraint Violation`, while `codesign --verify --strict` returned 0 and the same bundle opened
+fine through `open`. **Reproduced 2026-09-14, and the mechanism is the cdhash.** An *incremental* rebuild leaves the
+bundle byte-identical and causes nothing; a **clean** one (`rm -rf .build`) moves the hash
+(`cad1fcf1…` → `92785268…`) even from identical source, and the next launchd start then dies with
+`Launch Constraint Violation` in 0 ms. It is not a single kill: the second attempt produced no
+process either, and only the third, ~36 s later, came up — **why** it worked is not established,
+since the control separating "the constraint expired" from "the attempts refreshed something" was
+not run. That matters because a real login makes one attempt and, with `KeepAlive` deliberately
+absent, has no retry. **After a clean rebuild, do not assume the login item will bring the app up;
+start it and check.** It
+matters because `KeepAlive` is deliberately absent (DEC-006), so nothing would retry a start that
+died at login — Terminator would simply be absent, with a crash report as the only evidence. All
+three are in findings §12.
 
-**No task is currently selected.** TASK-004's acceptance unblocked both remaining P1s at once:
-TASK-006 (menu bar popover) and TASK-007 (focus tracker) each carry
-`depends_on: [TASK-003, TASK-004]`, and both are now closed. TASK-008 stays in `in-progress/` —
-its code is accepted, but its manual checklist needs a caller for the login-item service, and
-that caller is a popover row TASK-006 has to ship first.
+**The DEC-008 review trigger fired, the review ran, and the decision stands.** The trigger was
+one week of collected focus data; `focus.json` holds ten days (2026-08-31 through 2026-09-14,
+with gaps), gathered while the product was used for its purpose. Both halves of the question were
+computed on 2026-09-14: **14 quits of Telegram against 39 minutes of focus** in a day, and daily
+totals flat at a median of 34.5 minutes (mean 35.4) with no downward trend. The pattern the adversarial analysis
+predicted showed up literally — three quits six minutes apart, i.e. relaunched immediately for a
+full fresh limit.
 
-**Assembling TASK-006's packet was started and deliberately stopped.** The card cannot be
-executed as written: nothing exposes engine state to the view (`WatchController`'s public surface
-is six symbols, none of them a getter), nothing can tell the engine the config changed after the
-popover saves it, and the rule model has no removal API. The first two are the same defect class
-as TASK-008's — code that exists but cannot be reached. Details and the pending decision are in
-`docs/ai/execution-state.md`, "Открытые вопросы, гейтящие работу".
+The comparison the trigger actually asks for — "roughly what it would have been without
+Terminator" — **could not be computed**, because collection began after the limiter was already
+running. The author supplied that half from experience (without it, worse by several times over),
+and it is recorded in the decision as judgement rather than measurement. He chose the mechanic
+again, unchanged. **No timed trigger remains**; the full record is in
+`decisions/active/DEC-008-interruption-tax.md`, section "Review · 2026-09-14".
 
 ## Active constraints
 
@@ -92,11 +114,47 @@ These bite on every task, not only on the ones that name them.
 - Signing is asserted, not assumed: `build.sh` compares the produced designated requirement
   against the expected text and fails closed. An ad-hoc bundle passes `codesign --verify --strict`
   with exit 0, so verification alone never proved anything about who signed (findings §6).
-- The dev loop is `./build.sh && ./build/Terminator.app/Contents/MacOS/Terminator`. Never
-  `swift run`: a bare executable is `.prohibited` and can never show a menu bar item
-  (findings §7). **When TCC is in play, launch with `open build/Terminator.app` instead** —
-  a direct exec makes the terminal the responsible process, so consent is recorded against
-  the terminal rather than the app (findings §5, §7; measured by TASK-001).
+- The dev loop is `./build.sh && ./build/Terminator.app/Contents/MacOS/Terminator`, and it has
+  **one precondition: no instance may already be running.** A direct exec bypasses
+  LaunchServices — the only thing that refuses a second copy of an `.app` — so it starts a second
+  instance beside any running one, whoever launched it, and the two silently overwrite each
+  other's accrued focus seconds (findings §12). A polite quit **cannot be aimed** at a particular
+  instance: `osascript … to quit` was measured going to the launchd-owned copy twice in a row
+  while the one started through `open` stayed alive. So clear them with a checked loop rather
+  than a fixed number of attempts:
+
+  ```bash
+  # pgrep: 0 — something found, 1 — nothing running, anything else — enumeration failed.
+  # Empty stdout alone proves nothing: a failure prints nothing either.
+  # The bracket in `[b]uild` keeps the checking shell from matching itself when its own
+  # command line contains the pattern. Self-matching was not reproduced on this machine;
+  # the guard costs nothing either way.
+  tries=0
+  while :; do
+    pgrep -f '[b]uild/Terminator.app' >/dev/null; rc=$?
+    [ "$rc" -eq 1 ] && break                       # nothing running — safe to launch
+    if [ "$rc" -ne 0 ]; then
+      echo "pgrep failed (rc=$rc): absence of instances not established — do not launch" >&2
+      exit 1                                       # fail closed, never "probably clean"
+    fi
+    tries=$((tries + 1))
+    if [ "$tries" -gt 5 ]; then
+      echo "instance still alive after $tries quit attempts — investigate by hand" >&2
+      exit 1                                       # the quit may be refused; never spin forever
+    fi
+    osascript -e 'tell application id "com.svvoff.terminator" to quit' >/dev/null 2>&1
+    sleep 1
+  done
+  ```
+
+  It terminates: Terminator has no documents and no unsaved-changes sheet, so it has nothing to
+  refuse a quit with. `launchctl kickstart -k gui/$(id -u)/com.svvoff.terminator` restarts
+  **only** the launchd-owned instance and cannot remove one started through `open`, so it is not
+  a substitute for the loop. Never `swift run`: a bare executable is `.prohibited` and can never
+  show a menu bar item (findings §7). **When TCC is in play, launch with
+  `open build/Terminator.app`** — a direct exec makes the terminal the responsible process, so
+  consent is recorded against the terminal rather than the app (findings §5, §7; measured by
+  TASK-001).
 - Every interpolated value in every log line carries `privacy: .public`. Redaction happens at
   write time and cannot be undone, and the log is this product's only diagnostic channel
   (findings §14).
@@ -144,12 +202,34 @@ These bite on every task, not only on the ones that name them.
 - Anything that touches TCC must be launched with `open`, not exec'd out of `Contents/MacOS/`,
   or the consent lands on the terminal instead of the app (findings §5, §7).
 - One observation is on watch, not settled: a subject reappeared 31 s after being quit, with no
-  operator action and no LaunchAgent behind it. It did not reproduce in two controlled repeats.
-  TASK-004 should notice if it happens again rather than assume it cannot (findings §4).
+  operator action and no LaunchAgent behind it. It did not reproduce in two controlled repeats
+  (findings §4). An **explainable twin** now exists — Finder, quit on expiry, is restarted by the
+  system after 8.7 s and 10.5 s with a fresh `p_starttime` — which shows the class is real
+  without explaining that particular case.
 - Every detection path is edge-triggered: a missed edge means a permanently unwatched app with
   zero symptoms (findings §2).
-- Accepted product risk: the interruption tax (DEC-008). Review trigger is one week of
-  collected focus data. Do not re-litigate it in task cards.
+- **Two instances can run at once, and the cost is silent.** Turning the login item back on in
+  System Settings starts a second copy while one is already running: `RunAtLoad` makes launchd
+  exec the binary directly, and LaunchServices — the thing that normally refuses a second copy of
+  an `.app` — is not on that path (findings §12, §7). Files are never corrupted, because
+  `writeDurably` is atomic, but `FocusStore.flush` reads the file once and thereafter adds to
+  what it remembers, so two instances quietly overwrite each other's accrued seconds. It lands
+  squarely on the author's dev loop: build, `open`, and the login item still holds the old copy.
+  It was decided on 2026-09-14 not to fix this in code, on the grounds that the only real source
+  was the author's dev loop — **and that rationale is wrong.** The product's own recovery path
+  produces it: the user switches the login item off in Settings, which kills the launchd copy; to
+  see what happened they launch Terminator by hand; the row tells them, correctly, to *turn it
+  back on there*; they do — and launchd starts a second copy beside the running one. That is
+  exactly the sequence measured twice on this machine. So this is a product defect on a normal
+  path, not a dev-loop inconvenience, and the no-fix decision is **pending re-review by the
+  author** rather than settled. Single-instance behaviour is still not implemented and not
+  promised.
+- Accepted product risk: the interruption tax (DEC-008). **The trigger fired, the review ran on
+  2026-09-14, and the decision stands unchanged.** The numbers came out as the adversarial
+  analysis predicted — 14 quits against 39 minutes of focus in a day, daily totals flat at a
+  median of 34.5 minutes across ten days — and the author, who pays the cost, accepted it again.
+  No timed trigger is left; re-open only on his request or if the mechanic changes. Still not
+  re-litigated in task cards.
 
 ## Current validation priorities
 

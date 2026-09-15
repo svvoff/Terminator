@@ -68,7 +68,10 @@ runtime is excluded because it would additionally require the
   exit code. A bundle that does not verify is not a build product.
 - The dev loop is `./build.sh && ./build/Terminator.app/Contents/MacOS/Terminator`. Never
   `swift run`: a bare executable is `.prohibited` and can never show a menu bar item
-  (findings §7).
+  (findings §7). Operational precondition added 2026-09-14, and it does not reopen this
+  decision: the direct exec is only safe when **no instance is already running**, because it
+  bypasses LaunchServices — the only thing that refuses a second copy — and would otherwise add
+  a second writer beside the running one (findings §12).
 - The executable target declares no `resources:` and no code references `Bundle.module`
   (findings §7). The menu bar icon is drawn in code partly for this reason (DEC-009).
 - The certificate lives only in the local keychain. No key material is committed, and

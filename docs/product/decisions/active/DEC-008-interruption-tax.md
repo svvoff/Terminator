@@ -86,3 +86,38 @@ restraint, and TASK-103 — cooldown or daily budget — is the first candidate.
 falls, the interruptions are doing their job and the tax is the price.
 
 Until that week exists there is no evidence either way, which is why nothing is changed now.
+
+## Review · 2026-09-14 — trigger fired, decision upheld
+
+The week exists. `focus.json` holds ten days of collection (2026-08-31 … 2026-09-14, with gaps
+where no rule was enabled), gathered while the author used the product on himself rather than as
+a fixture. Both halves of the question above were computed.
+
+**Count is high.** On 2026-09-14 Telegram was quit **14 times** against **39 minutes** of focus —
+under three minutes of use per interruption. The timestamps show the predicted pattern outright:
+10:06:16, 10:12:21, 10:18:26 — three quits six minutes apart, i.e. relaunched immediately for a
+full fresh limit, exactly as the analysis said would happen.
+
+**Total is flat.** Daily focus in Telegram: 33, 32, 16, 68, 35, 45, 34, 41, 11, 39 minutes —
+median 34.5, mean 35.4, no downward trend across two weeks of being limited.
+
+**The comparison the trigger actually asks for could not be computed.** It says "roughly what it
+would have been without Terminator", and no such baseline exists: collection began after the
+limiter was already running, and history cannot be back-filled. What the numbers establish is
+that the total does not move *while* limited — not that it equals an unlimited total.
+
+**The author supplied the missing half from experience, and it is recorded as judgement rather
+than measurement:** without Terminator it would be worse — by several times over, in his words.
+This is
+the same kind of input the decision rested on when it was made: the author was shown the
+adversarial analysis and chose the mechanic anyway. He was now shown the numbers that analysis
+predicted, and chose it again.
+
+**Decision: unchanged.** The mechanic ships as specified. TASK-103 (cooldown or daily budget)
+stays reachable and unclaimed; the swappable expiry strategy stays load-bearing so that it
+remains cheap. Nothing is added, softened or mitigated.
+
+**New review trigger:** none on a timer. This decision is no longer a bet awaiting evidence — the
+predicted cost was measured, showed up exactly as described, and was accepted by the person
+paying it. Re-open it only if the author asks, or if the mechanic itself changes (Stage 3
+scheduling would do that).

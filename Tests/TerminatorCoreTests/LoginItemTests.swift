@@ -37,6 +37,25 @@ struct LoginItemTests {
         }
     }
 
+    /// Регрессия ручного чеклиста TASK-008, подпункт 5.
+    ///
+    /// `disabledByUser` — единственное состояние, в котором запись plist **состоялась**, а
+    /// регистрация всё равно не вступит: система помнит выключение пользователя поверх файла.
+    /// Измерено на живой машине — перезапись оставила `systemStatus` равным `2`. До этой
+    /// правки строка автозапуска обещала там «вступит при следующем входе», потому что
+    /// смотрела на один лишь факт записи.
+    ///
+    /// `unknown` обязан оставаться «может вступить»: именно им был переходный `3`, ставший
+    /// `enabled` без входа в систему.
+    @Test func disabledByUserNeverPromisesTheNextLogin() {
+        #expect(LoginItemStatus.disabledByUser.registrationCanTakeEffect == false)
+        #expect(LoginItemStatus.enabled.registrationCanTakeEffect == false)
+
+        #expect(LoginItemStatus.notRegistered.registrationCanTakeEffect)
+        #expect(LoginItemStatus.unknown(rawValue: 3).registrationCanTakeEffect)
+        #expect(LoginItemStatus.unknown(rawValue: 99).registrationCanTakeEffect)
+    }
+
     /// Критерий 2. Содержимое plist для известного адреса: три ключа, и других нет.
     ///
     /// Отдельной строкой проверяется отсутствие ключа, перезапускающего процесс после
