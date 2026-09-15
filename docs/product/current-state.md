@@ -30,12 +30,13 @@ closure had been declared on card status alone.
 
 **No card is in flight, and the milestone is still open.** `tasks/ready/` and
 `tasks/in-progress/` are empty for the first time in the project's life, but Stage 1 has two
-unmet exit criteria that no card covers. They need **one action and then a week** — not elapsed
-time alone, which would never close them. **That week has not started.** Criterion 2 counts days
-with three or more enabled rules,
-and `config.json` held two on 2026-09-15 — Telegram at 360 s and TextEdit at 5400 s, the second
-appearing in the focus record on three of eleven days at 0–4 minutes each. Enabling a third real
-rule is the event that starts the clock, and nothing schedules it.
+unmet exit criteria that no card covers. They needed one action and then a week, and **the action
+was taken on 2026-09-15**: the author enabled a third rule, `com.DanPristupov.Fork` at 3600 s,
+and the app wrote `rules=3` and started its countdown. `config.json` now holds Fork 3600 s,
+TextEdit 5400 s and Telegram 360 s. **The week is running, and from here elapsed time does close
+criteria 2 and 3** — as long as all three rules stay enabled. TextEdit is a checklist leftover
+that records 0–4 minutes on three days of eleven, but removing it drops the count back to two and
+stops the clock.
 
 What the product does now, it does on a live machine
 without supervision: it has been resident for over a week, comes up at login through launchd, and

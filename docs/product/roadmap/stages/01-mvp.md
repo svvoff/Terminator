@@ -14,21 +14,28 @@ had been declared on card status alone, without checking this section. State of 
   recorded under "Exit criteria" below, and the seven cards it still names are done and reviewed.
   Before that date the criterion was unmet — not because anyone doubted the reasoning, but
   because the reasoning had never been written down where the criterion is checked.
-- **Criterion 2 is not met.** It asks for a full week of ordinary use with **at least three
-  enabled rules**. The collected data holds eleven days, but three applications appear on exactly
-  one of them (2026-09-14, and only because Finder was added for two minutes during a checklist).
-  Most days carry one rule. **The week has not started**: as of 2026-09-15 `config.json` holds
-  two rules, `com.tdesktop.Telegram` and `com.apple.TextEdit`, and the second shows up on three of
-  the eleven days at all, at 0–4 minutes each. A third enabled rule is the event that starts the
-  clock, and nothing schedules it.
+- **Criterion 2 is not met, but its clock is running as of 2026-09-15.** It asks for a full week
+  of ordinary use with **at least three enabled rules**. The author enabled a third rule —
+  `com.DanPristupov.Fork`, 3600 s — at 2026-09-15T14:56:57Z, and the app recorded it: `config
+  written … rules=3 … bytes=543`, followed by `countdown-started bundleID=com.DanPristupov.Fork
+  pid=7869`. `config.json` now holds three rules: Fork 3600 s, TextEdit 5400 s, Telegram 360 s.
+  **Removing any of them stops the clock** — TextEdit is a leftover from a checklist and records
+  0–4 minutes on three days of eleven, but it is load-bearing for this criterion until a fourth
+  rule exists. The eleven days collected before this date carry three applications on exactly one
+  of them (2026-09-14, and only because Finder was added for two minutes during a checklist) and
+  do not count toward the week.
+  **Day counting is unsettled and is the author's call:** the rule went on at 16:56 local, so
+  2026-09-15 is a partial day. Read conservatively, the first full three-rule day is 2026-09-16
+  and the seventh is 2026-09-22.
 - **Criterion 3** inherits that gap: the per-app week it describes is a week of one app.
 - Criteria 4 and 5 are met — the terminal `refused` state is surfaced in the popover rather than
   dropped, and DEC-008's review is recorded on the decision card (2026-09-14).
 
-**What closing the stage now requires: one action, then a week.** The action is the author's —
-enabling a third rule. Nothing else starts the clock, and elapsed time alone never will. Seven
-days of ordinary use after that fill criteria 2 and 3 together. The documentation half — the
-criterion-1 supersede — was written on 2026-09-15 and is below.
+**What closing the stage now requires: the week, now running.** The action that had to precede
+it — enabling a third rule — was taken by the author on 2026-09-15 at 16:56 local. From here the
+criteria really are filled by elapsed time, provided the three rules stay enabled and the
+collection is not disturbed. The documentation half — the criterion-1 supersede — was written the
+same day and is below.
 
 **"Only time is left" has now been wrong twice here**, and the second time was written into this
 file. On 2026-09-14 it was wrong because the supersede had to be authored; a review caught it. On
