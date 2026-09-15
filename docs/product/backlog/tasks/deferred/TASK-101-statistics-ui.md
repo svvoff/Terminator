@@ -4,9 +4,10 @@ title: "Statistics UI: per-app daily charts"
 epic: EPIC-04
 priority: P3
 risk: low
-depends_on: [TASK-007]
+depends_on: [TASK-007, TASK-108]
 validation_profile: []
 context_refs:
+  - docs/product/roadmap/stages/02-statistics.md
   - docs/product/recon/macos-findings.md
   - docs/product/decisions/
 ---
@@ -31,9 +32,21 @@ are in the data.
 
 ## Why deferred
 
-Stage 2. A chart over an empty file teaches nothing; the data has to exist first. The one
-question the MVP actually needs answered from this data — DEC-008's review trigger, one week of
-collected focus data — can be answered by reading the JSON directly.
+**Still deferred as of 2026-09-15, but for a new and dated reason.** Stage 2 opened that day
+(`docs/product/roadmap/stages/02-statistics.md`) and its arithmetic half was promoted as
+**TASK-108**. This card — the surface — stays here until **Stage 1's collection week closes,
+roughly 2026-09-22**, because it requires `./build.sh` and a restart of the resident, which is
+the exact sequence that produced a second instance twice; two instances silently overwrite each
+other's accrued focus seconds (findings §12), and that week is what Stage 1's criteria 2 and 3
+are waiting on.
+
+Its three open questions below are **answered** by the stage file and are no longer open: a
+collapsible section in the existing popover, a sliding seven-day window with no picker, and no
+schema bump. Promoting this card means writing the ten-section contract against those answers.
+
+The original reason, still true: a chart over an empty file teaches nothing; the data has to
+exist first. The one question the MVP actually needed from this data — DEC-008's review trigger —
+was answered by reading the JSON directly.
 
 ## Scope sketch
 
