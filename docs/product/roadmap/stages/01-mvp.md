@@ -25,11 +25,17 @@ had been declared on card status alone, without checking this section. State of 
 - Criteria 4 and 5 are met — the terminal `refused` state is surfaced in the popover rather than
   dropped, and DEC-008's review is recorded on the decision card (2026-09-14).
 
-**What closing the stage now requires:** elapsed time and nothing else. A week of ordinary use
-with three or more enabled rules fills criteria 2 and 3 together. The documentation half — the
-criterion-1 supersede — was written on 2026-09-15 and is below. Until 2026-09-15 these were two
-different kinds of work, and conflating them is how the premature closure happened; only one kind
-is left.
+**What closing the stage now requires: one action, then a week.** The action is the author's —
+enabling a third rule. Nothing else starts the clock, and elapsed time alone never will. Seven
+days of ordinary use after that fill criteria 2 and 3 together. The documentation half — the
+criterion-1 supersede — was written on 2026-09-15 and is below.
+
+**"Only time is left" has now been wrong twice here**, and the second time was written into this
+file. On 2026-09-14 it was wrong because the supersede had to be authored; a review caught it. On
+2026-09-15 it was wrong again, in this paragraph, because the week cannot begin until a third rule
+is enabled — caught by an audit of the very commit that wrote it. The pattern is the same both
+times: a criterion whose remaining work is an *act* gets described as a criterion that merely
+waits. Check what has to happen first, not only how long it must run.
 
 **Seven of the eight accepted cards carried `manual-checklist`**, and on three of them the
 checklist found a defect that neither the tests nor the review had caught: TASK-004 (a phantom
@@ -226,9 +232,15 @@ its ten sections against findings §5 as it now reads, not moving the file back.
   expensive, and the signing plan needs revisiting before TASK-002 starts — TASK-002 is the card
   that writes `build.sh` and its signing step, so it is the gate. This is why TASK-001 is P0,
   high risk, and first.
-- **Consent is per (client, target) pair and denial is terminal.** A user who denies the
-  Automation prompt for an app leaves that app permanently unquittable; `-1743` is not a retry
-  case (findings §5). The MVP surfaces the state and stops, by design.
+- ~~**Consent is per (client, target) pair and denial is terminal.** A user who denies the
+  Automation prompt for an app leaves that app permanently unquittable.~~ **Withdrawn
+  2026-09-15 — this risk does not exist on the quit path.** TASK-009 measured the target dying on
+  every one of seventeen sends, including all of those made under explicit denial (findings §5);
+  the quit is sent with `kAEDoNotPromptForUserConsent` and consults no grant. The bullet survived
+  the 2026-08-28 correction pass and contradicted this file's own supersede, forty-five lines
+  above, until an audit of commit 49a2b7d caught it. `errAEEventNotPermitted (-1743)` remains
+  terminal where it does occur — it ends the retry loop rather than consuming attempts — but no
+  measured path reaches it from a denied Automation grant.
 - **A missed detection edge is invisible.** There is no warning UI whose absence would be
   noticed, so an unwatched app produces no symptom (findings §2). The reconciliation sweep is a
   must-have, not an optimisation, and its coverage is what the engine tests must assert.

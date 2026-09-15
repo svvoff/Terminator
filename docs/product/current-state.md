@@ -30,8 +30,9 @@ closure had been declared on card status alone.
 
 **No card is in flight, and the milestone is still open.** `tasks/ready/` and
 `tasks/in-progress/` are empty for the first time in the project's life, but Stage 1 has two
-unmet exit criteria that no card covers — they need elapsed time on the author's machine, not
-work. **That week has not started.** Criterion 2 counts days with three or more enabled rules,
+unmet exit criteria that no card covers. They need **one action and then a week** — not elapsed
+time alone, which would never close them. **That week has not started.** Criterion 2 counts days
+with three or more enabled rules,
 and `config.json` held two on 2026-09-15 — Telegram at 360 s and TextEdit at 5400 s, the second
 appearing in the focus record on three of eleven days at 0–4 minutes each. Enabling a third real
 rule is the event that starts the clock, and nothing schedules it.
@@ -93,8 +94,10 @@ died at login — Terminator would simply be absent, with a crash report as the 
 three are in findings §12.
 
 **The DEC-008 review trigger fired, the review ran, and the decision stands.** The trigger was
-one week of collected focus data; `focus.json` holds ten days (2026-08-31 through 2026-09-14,
-with gaps), gathered while the product was used for its purpose. Both halves of the question were
+one week of collected focus data; `focus.json` held ten days at the time of that review
+(2026-08-31 through 2026-09-14, with gaps), gathered while the product was used for its purpose.
+It holds eleven as of 2026-09-15 — the review's numbers below are the ten it was computed on and
+are not restated against the eleventh. Both halves of the question were
 computed on 2026-09-14: **14 quits of Telegram against 39 minutes of focus** in a day, and daily
 totals flat at a median of 34.5 minutes (mean 35.4) with no downward trend. The pattern the adversarial analysis
 predicted showed up literally — three quits six minutes apart, i.e. relaunched immediately for a
