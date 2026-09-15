@@ -2,34 +2,34 @@
 
 ## Status
 
-**Active — eight cards accepted, one deferred, three of five exit criteria unmet.** Opened
+**Active — eight cards accepted, one superseded, two of five exit criteria unmet.** Opened
 2026-08-26. Every card that was worked on was accepted by 2026-09-14 (TASK-001 through TASK-008,
-plus TASK-009 added mid-stage as a spike), and TASK-005 stands deferred — which is why criterion 1
-is **not** met as written.
+plus TASK-009 added mid-stage as a spike), and TASK-005 stands deferred and now explicitly
+superseded.
 
 The stage was briefly marked `done` on 2026-09-14 and **that was reverted the same day**: closure
-had been declared on card status alone, without checking this section. What is actually missing:
+had been declared on card status alone, without checking this section. State of the five:
 
-- **Criterion 1** needs an explicit supersede, not silence. TASK-005 is deferred rather than done
-  because TASK-009 measured its subject out of existence — the quit path asks for no Apple Events
-  consent at all. That reasoning is sound but has to be recorded as superseding the criterion.
+- **Criterion 1 is met as amended 2026-09-15.** TASK-005 is excluded from it by the supersede
+  recorded under "Exit criteria" below, and the seven cards it still names are done and reviewed.
+  Before that date the criterion was unmet — not because anyone doubted the reasoning, but
+  because the reasoning had never been written down where the criterion is checked.
 - **Criterion 2 is not met.** It asks for a full week of ordinary use with **at least three
-  enabled rules**. The collected data holds ten days, but three applications appear on exactly one
-  of them (2026-09-14, and only because Finder was added for two minutes during a checklist).
-  Most days carry one rule.
+  enabled rules**. The collected data holds eleven days, but three applications appear on exactly
+  one of them (2026-09-14, and only because Finder was added for two minutes during a checklist).
+  Most days carry one rule. **The week has not started**: as of 2026-09-15 `config.json` holds
+  two rules, `com.tdesktop.Telegram` and `com.apple.TextEdit`, and the second shows up on three of
+  the eleven days at all, at 0–4 minutes each. A third enabled rule is the event that starts the
+  clock, and nothing schedules it.
 - **Criterion 3** inherits that gap: the per-app week it describes is a week of one app.
 - Criteria 4 and 5 are met — the terminal `refused` state is surfaced in the popover rather than
   dropped, and DEC-008's review is recorded on the decision card (2026-09-14).
 
-**What closing the stage now requires — two different kinds of work, and conflating them is how
-the premature closure happened:**
-
-1. **Elapsed time**, nobody's task: a week of ordinary use with three or more enabled rules, which
-   also fills criterion 3.
-2. **Documentation, outstanding and unassigned**: the criterion-1 supersede has to be *written* —
-   a recorded statement that TASK-005 stays deferred because TASK-009 measured its subject out of
-   existence, and that this satisfies criterion 1 as amended. Until someone writes it, waiting out
-   the week still leaves the stage unclosable.
+**What closing the stage now requires:** elapsed time and nothing else. A week of ordinary use
+with three or more enabled rules fills criteria 2 and 3 together. The documentation half — the
+criterion-1 supersede — was written on 2026-09-15 and is below. Until 2026-09-15 these were two
+different kinds of work, and conflating them is how the premature closure happened; only one kind
+is left.
 
 **Seven of the eight accepted cards carried `manual-checklist`**, and on three of them the
 checklist found a defect that neither the tests nor the review had caught: TASK-004 (a phantom
@@ -90,7 +90,8 @@ bounded polite retry — five sends spanning two minutes (at the deadline, then 
 no moment at all: TASK-009 measured that the quit path consults no Apple Events consent, on
 five applications across three consent states including explicit denial, so the pre-warm this
 paragraph used to describe has nothing to warm (findings §5). Tasks: TASK-001, TASK-004.
-**TASK-005 deferred 2026-08-28.**
+**TASK-005 deferred 2026-08-28, and superseded out of criterion 1 on 2026-09-15** — see the
+supersede under "Exit criteria".
 
 **EPIC-03 — Rules and interface.** A rule model with a durable, versioned JSON store under
 `~/Library/Application Support/com.svvoff.terminator/` from a hardcoded identifier constant, no
@@ -167,7 +168,8 @@ behaves against a running target — before any engine code is written against a
 
 ## Exit criteria
 
-1. TASK-001 through TASK-008 are done and reviewed.
+1. TASK-001 through TASK-008 are done and reviewed. **Amended 2026-09-15: TASK-005 is excluded
+   — see the supersede below. The criterion is met by the remaining seven.**
 2. The app starts at login and runs through one full week of ordinary daily use on the author's
    machine, with at least three enabled rules.
 3. Focus data for that week is on disk, per app, per day, and readable.
@@ -181,6 +183,38 @@ behaves against a running target — before any engine code is written against a
 Criterion 5 is why the week of real use is an exit criterion and not a nice-to-have. Without
 collected data the decision between "build the statistics view" and "change the mechanic" would
 be made on recollection.
+
+### Supersede · 2026-09-15 — criterion 1, TASK-005
+
+**Criterion 1 is amended to read TASK-001 through TASK-004 and TASK-006 through TASK-008.
+TASK-005 is excluded, stays in `tasks/deferred/`, and is not owed to this stage.**
+
+**What removes it.** TASK-005 exists to hold Apple Events consent and acquire it away from the
+moment of closing. TASK-009 measured that the quit path never consults consent at all: the
+hand-rolled event is sent with `kAEDoNotPromptForUserConsent`, and across **seventeen sends on
+five applications** — first-party and third-party, sandboxed and not, Mac App Store and direct,
+document-based and not, scriptable and not — spanning three consent states **including explicit
+denial**, the target died every time (findings §5, ACCEPT 2026-08-28). There is nothing to
+pre-warm, no denial to route around, and no per-app consent state for the popover to render. The
+one piece of the card with surviving value — `NSAppleEventsUsageDescription`, which macOS renders
+verbatim if a dialog is ever raised — shipped in `Packaging/Info.plist` with TASK-002.
+
+**Why this is a supersede and not an acceptance.** The card is not moved to `tasks/done/`. There
+is no diff, no validation run and no evidence to accept; an entry in `done/` would claim work that
+was correctly never done. Deferral is the honest status, and this note is what makes the criterion
+consistent with it.
+
+**Whose decision this is.** The deferral was the author's, on 2026-08-28, on TASK-009's
+measurement. This note changes nothing about the product; it records that decision at the level
+where the criterion is checked — the level at which closure was once declared without it, on
+2026-09-14. It is deliberately not a decision card: it amends one criterion of
+one stage, where a DEC binds a product mechanic across tasks. If the exclusion should bind beyond
+Stage 1, that is a DEC and has to be argued as one.
+
+**What reverses it.** The product sending an Apple Event that is **not** `'aevt'/'quit'`, or a
+macOS release that puts the consent gate back on the quit path. Either is a new measurement, not
+a guess — and either brings back the subject, not the card: promoting TASK-005 means re-deriving
+its ten sections against findings §5 as it now reads, not moving the file back.
 
 ## Risks
 

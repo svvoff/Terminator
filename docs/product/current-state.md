@@ -11,27 +11,32 @@ an adversary — the product creates friction, not a prison.
 
 ## Current stage
 
-Stage 1 — MVP. **No card is left, and the stage is still open: three of its five exit criteria
+Stage 1 — MVP. **No card is left, and the stage is still open: two of its five exit criteria
 are unmet.** The limiter and silent focus-data collection both ship and both run on the author's
 own machine. Stage 0 (discovery) is done. Stages 2 (statistics UI), 3 (scheduling), 4
 (distribution) are future and have no cards.
 
 Eight of the milestone's nine cards were accepted by 2026-09-14; the ninth, TASK-005, was deferred
-because TASK-009 measured its subject away rather than because it was dropped — which is precisely
-why **criterion 1 is not met either**: it asks for TASK-001 through TASK-008 done, and a deferral
-is not a done. The supersede is justified but has to be *written* before it counts. Criterion 2
-asks for a full week of ordinary use with **at least three enabled rules** (three appear on
-exactly one of the ten collected days), and criterion 3 depends on it. The stage file lists all
-five and says which are
-met; it was briefly marked `done` on 2026-09-14 and reverted the same day, because closure had
-been declared on card status alone.
+because TASK-009 measured its subject away rather than because it was dropped. **Criterion 1 was
+amended on 2026-09-15 to exclude it and is now met** — the supersede is written into the stage
+file under "Exit criteria", and the card stays in `tasks/deferred/` rather than moving to `done/`,
+because there is no diff and no evidence to accept. What is left is criterion 2 — a full week of
+ordinary use with **at least three enabled rules** (three appear on exactly one of the eleven
+collected days) — and criterion 3, which depends on it. The stage file lists all five and says
+which are met; it was briefly marked `done` on 2026-09-14 and reverted the same day, because
+closure had been declared on card status alone.
 
 ## Current focus
 
 **No card is in flight, and the milestone is still open.** `tasks/ready/` and
 `tasks/in-progress/` are empty for the first time in the project's life, but Stage 1 has two
 unmet exit criteria that no card covers — they need elapsed time on the author's machine, not
-work. What the product does now, it does on a live machine
+work. **That week has not started.** Criterion 2 counts days with three or more enabled rules,
+and `config.json` held two on 2026-09-15 — Telegram at 360 s and TextEdit at 5400 s, the second
+appearing in the focus record on three of eleven days at 0–4 minutes each. Enabling a third real
+rule is the event that starts the clock, and nothing schedules it.
+
+What the product does now, it does on a live machine
 without supervision: it has been resident for over a week, comes up at login through launchd, and
 the author uses it on himself rather than as a test fixture.
 
@@ -215,15 +220,27 @@ These bite on every task, not only on the ones that name them.
   `writeDurably` is atomic, but `FocusStore.flush` reads the file once and thereafter adds to
   what it remembers, so two instances quietly overwrite each other's accrued seconds. It lands
   squarely on the author's dev loop: build, `open`, and the login item still holds the old copy.
-  It was decided on 2026-09-14 not to fix this in code, on the grounds that the only real source
-  was the author's dev loop — **and that rationale is wrong.** The product's own recovery path
-  produces it: the user switches the login item off in Settings, which kills the launchd copy; to
-  see what happened they launch Terminator by hand; the row tells them, correctly, to *turn it
-  back on there*; they do — and launchd starts a second copy beside the running one. That is
-  exactly the sequence measured twice on this machine. So this is a product defect on a normal
-  path, not a dev-loop inconvenience, and the no-fix decision is **pending re-review by the
-  author** rather than settled. Single-instance behaviour is still not implemented and not
-  promised.
+  It also lands on the product's own recovery path: the user switches the login item off in
+  Settings, which kills the launchd copy; to see what happened they launch Terminator by hand;
+  the row tells them, correctly, to *turn it back on there*; they do — and launchd starts a
+  second copy beside the running one. That is exactly the sequence measured twice on this
+  machine.
+
+  **Re-reviewed and accepted as it stands on 2026-09-15, by the author.** The first no-fix
+  decision, on 2026-09-14, rested on "the only real source is the author's dev loop", and **that
+  basis was wrong** — the sequence above is a normal user path. The decision survived the
+  correction anyway, but it is now an accepted defect rather than a non-issue, and the difference
+  is what this paragraph exists to preserve: the decision no longer rests on the path being
+  unreachable, because it is reachable. Single-instance behaviour is **not implemented and not
+  promised**. The author gave no further rationale, and none is invented here — the record is that
+  he re-took the decision with the corrected facts in view.
+
+  What is measured: the mechanism, reproduced twice; that files are never corrupted; that
+  `FocusStore.flush` makes the last writer win. What is **not** measured is the size of the loss —
+  nobody has run two instances side by side and compared the result against a single-instance
+  control, so "how much focus data a duplicate actually costs" is an open number, not a small one.
+  Re-open the decision if a day's focus record visibly drops, or if a duplicate is observed
+  outside the dev loop. That trigger is a proposal and the author's to change.
 - Accepted product risk: the interruption tax (DEC-008). **The trigger fired, the review ran on
   2026-09-14, and the decision stands unchanged.** The numbers came out as the adversarial
   analysis predicted — 14 quits against 39 minutes of focus in a day, daily totals flat at a

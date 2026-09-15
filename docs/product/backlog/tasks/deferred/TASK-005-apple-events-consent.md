@@ -18,6 +18,12 @@ context_refs:
 
 ## Why deferred
 
+**Superseded 2026-09-15 out of Stage 1's exit criterion 1** — the record is in
+`docs/product/roadmap/stages/01-mvp.md`, section "Exit criteria", subsection
+"Supersede · 2026-09-15". The card stays here rather than moving to `tasks/done/`: there is no
+diff and no evidence to accept, and an entry in `done/` would claim work that was correctly never
+done. The stage no longer owes this card; the paragraphs below say why.
+
 **Deferred 2026-08-28 by the author, on TASK-009's measurement.** This card exists to keep the
 OS consent dialog away from the moment of closing. TASK-009 measured that no dialog appears
 there: the hand-rolled quit is sent with `kAEDoNotPromptForUserConsent`, consent is never
