@@ -1,7 +1,7 @@
 ---
 id: DEC-005
 title: Focus statistics — scope, pause set, and why collection ships in the MVP
-applies_to: [TASK-003, TASK-007, TASK-108]
+applies_to: [TASK-003, TASK-007, TASK-108, TASK-101]
 ---
 
 # DEC-005 — Focus statistics: scope, pause set, and why collection ships in the MVP
@@ -108,6 +108,9 @@ empty database.
   the watched-apps-only scope, and its numbers are the same floor on attention, never a measure
   of it. Added to `applies_to` on 2026-09-17, when the router was found not to list the card
   that already cited this decision.
+- `TASK-101` (Stage 2) — renders TASK-108's summary in the popover. A reader only, with the same
+  floor-on-attention reading; its captions describe what was recorded and never claim more.
+  Added to `applies_to` on 2026-09-18, when the card was promoted.
 
 ## Review trigger
 

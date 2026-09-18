@@ -239,6 +239,33 @@ public final class WatchController {
         }
     }
 
+    /// Секция «Focus» поповера на сейчас — **только чтение**, ни диска, ни записи.
+    ///
+    /// Сводится **сумма** записанного и накопленного, а не одно из двух: `focusStore.recorded`
+    /// — файл, как он прочитан при старте, и сам по себе отстаёт до `flushInterval`;
+    /// `engine.focusRollup(at:)` сам по себе теряет все прошлые запуски. Их сумма — ровно то,
+    /// что запишет следующий слив (`FocusStore.flush`), поэтому секция показывает то же число,
+    /// которое продукт пишет.
+    ///
+    /// **`load()` здесь нет и быть не должно.** Слив пишет `recorded.adding(accrued)`, а
+    /// `recorded` меняется только в `load()`. Повторное чтение положило бы в `recorded` уже
+    /// накопленное этим запуском, и каждый следующий слив записывал бы его дважды — молча.
+    /// Симметрия с `reloadFromDisk()` конфига здесь ловушка. По той же причине сводка не
+    /// заводит свой `FocusStore`: он показал бы не то число, которое пишет продукт.
+    ///
+    /// Часы читаются **один** раз: тот же `Now` уходит и в движок, и в сводку. Два чтения дали
+    /// бы накопленное на один момент и окно дней на другой — на границе суток они разъехались бы.
+    public func focusSection() -> FocusSection {
+        let now = currentNow
+        return FocusSection(
+            recorded: focusStore.recorded,
+            accrued: engine.focusRollup(at: now),
+            quarantine: focusStore.quarantine,
+            config: store.config,
+            now: now
+        )
+    }
+
     public func stop() {
         observer.stop()
         focusObserver.stop()

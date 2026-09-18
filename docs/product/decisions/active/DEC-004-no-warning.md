@@ -1,7 +1,7 @@
 ---
 id: DEC-004
 title: No warning before closing an app
-applies_to: [TASK-004, TASK-005, TASK-006, TASK-008]
+applies_to: [TASK-004, TASK-005, TASK-006, TASK-008, TASK-101]
 ---
 
 # DEC-004 — No warning before closing an app
@@ -87,6 +87,9 @@ already exists as the rule's enable toggle (DEC-001).
 - `TASK-006` — the popover shows a live countdown as ambient status; it must not raise, flash
   or focus itself as a deadline approaches.
 - `TASK-008` — the one-time "Background items added" notice is expected and is not a bug.
+- `TASK-101` (Stage 2) — the Focus fold is ambient status in the same sense as the countdown:
+  it appears only when the user opens the popover and expands it, and it raises, badges and
+  notifies nothing. Added to `applies_to` on 2026-09-18, when the card was promoted.
 
 ## Review trigger
 

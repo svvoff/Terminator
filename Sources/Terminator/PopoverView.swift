@@ -55,6 +55,10 @@ struct PopoverView: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
 
+            // Вне ветки `state.isEmpty`: история фокуса переживает удаление правил, и секция
+            // видна в обоих состояниях списка. В состоянии hidden она не рисует ничего.
+            FocusFold(model: model)
+
             Divider()
 
             LaunchAtLoginRow(model: model)
@@ -303,6 +307,123 @@ extension PopoverInstance {
     fileprivate var isRefused: Bool {
         if case .refused = status { return true }
         return false
+    }
+}
+
+/// Секция «Focus»: сколько каждое наблюдаемое приложение было фронтмост в каждый из семи
+/// дней. Ambient status, как отсчёт, — ни уведомлений, ни бейджей (DEC-004). Числа — нижняя
+/// граница, а не мера (DEC-005), поэтому подписи говорят, что значит каждое, и не оценивают.
+///
+/// **Здесь ничего не строится.** Секция приходит готовой из модели, которая строит её ровно в
+/// двух точках — на открытии поповера и на раскрытии. Это тело выполняется изнутри
+/// `TimelineView` раз в секунду, и сводка, построенная здесь, пересортировывала бы строки под
+/// курсором. Вью читает только `focusSection`, `isFocusExpanded` и `displayName(for:)`.
+///
+/// Строк столько, сколько в сводке, — все и в данном порядке: без прокрутки и без потолка.
+/// Как это выглядит в 340 pt, решает ручной чеклист, а не догадка.
+private struct FocusFold: View {
+
+    let model: PopoverModel
+
+    var body: some View {
+        switch model.focusSection {
+        case .hidden:
+            // Ни заголовка, ни разделителя, ни заглушки.
+            EmptyView()
+
+        case .unreadable:
+            DisclosureGroup(isExpanded: expansion) {
+                Text("The focus file could not be read when Terminator started. It was left untouched. Fix it by hand, then relaunch Terminator.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            } label: {
+                // Без знаменателя: в карантине история не прочитана, и «N of 7» был бы выдумкой.
+                Text("Focus")
+            }
+
+        case .summary(let summary):
+            DisclosureGroup(isExpanded: expansion) {
+                VStack(alignment: .leading, spacing: 6) {
+                    grid(summary)
+                    Text("Minutes frontmost per day. Totals are exact.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Text("— means nothing was recorded that day: Terminator wasn't running, or no watched app was frontmost. It can't tell which.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            } label: {
+                HStack(spacing: 6) {
+                    Text("Focus")
+                    Text(summary.recordedDaysText)
+                        .foregroundStyle(.secondary)
+                }
+            }
+        }
+    }
+
+    /// Раскрытие живёт в модели: вью создаётся заново на каждом открытии поповера, а модель —
+    /// нет. Сеттер модели сам решает, строить ли секцию заново.
+    private var expansion: Binding<Bool> {
+        Binding(
+            get: { model.isFocusExpanded },
+            set: { model.setFocusExpanded($0) }
+        )
+    }
+
+    /// Сетка: имя, семь дней от старшего к сегодняшнему, итог. Числа — готовые строки
+    /// форматтеров ядра; здесь они только расставляются.
+    private func grid(_ summary: FocusSummary) -> some View {
+        Grid(alignment: .trailing, horizontalSpacing: 6, verticalSpacing: 3) {
+            GridRow {
+                Color.clear
+                    .gridCellUnsizedAxes([.horizontal, .vertical])
+                    .gridColumnAlignment(.leading)
+                // День месяца из ключа — ни названий дней недели, ни форматтера дат.
+                ForEach(summary.days, id: \.self) { day in
+                    Text(String(day.day))
+                        .foregroundStyle(.secondary)
+                        .fixedSize()
+                }
+                Text("total")
+                    .foregroundStyle(.secondary)
+                    .fixedSize()
+            }
+
+            ForEach(summary.rows, id: \.bundleIdentifier) { row in
+                GridRow {
+                    nameCell(row.bundleIdentifier)
+                    ForEach(row.perDay.indices, id: \.self) { index in
+                        Text(FocusSummary.cellText(row.perDay[index]))
+                            .fixedSize()
+                    }
+                    Text(FocusSummary.totalText(row.total))
+                        .fixedSize()
+                }
+            }
+        }
+        .font(.caption)
+        .monospacedDigit()
+    }
+
+    /// Имя приложения, если оно отрезолвилось, иначе идентификатор моноширинным. Числа
+    /// усекаться не должны, поэтому уступает место именно эта колонка — усечением посередине.
+    /// Подсказка с полным идентификатором висит в обоих случаях.
+    private func nameCell(_ bundleIdentifier: String) -> some View {
+        Group {
+            if let name = model.displayName(for: bundleIdentifier) {
+                Text(name)
+            } else {
+                Text(bundleIdentifier)
+                    .font(.system(.caption, design: .monospaced))
+            }
+        }
+        .lineLimit(1)
+        .truncationMode(.middle)
+        .help(bundleIdentifier)
     }
 }
 

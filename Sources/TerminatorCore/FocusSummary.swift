@@ -100,12 +100,14 @@ public struct FocusSummary: Equatable, Sendable {
     /// - `.zero` — `0`: день записан, у приложения записи нет;
     /// - больше нуля и меньше минуты — `<1`, чтобы ненулевое значение не выглядело нулём;
     /// - минута и больше — целые минуты: `115 s` даёт `1`, а не `2`.
+    /// - от `.seconds(Int64.max)` — `≥153722867280912930`: насыщение вместо падения в `components`.
     ///
     /// Единицы ячейки и итога различаются намеренно — см. описание типа.
     public static func cellText(_ duration: Duration?) -> String {
         guard let duration else { return "\u{2014}" }
         if duration == .zero { return "0" }
         if duration < .seconds(60) { return "<1" }
+        if duration >= .seconds(Int64.max) { return "\u{2265}\(Int64.max / 60)" }
         return "\(duration.components.seconds / 60)"
     }
 
@@ -117,11 +119,13 @@ public struct FocusSummary: Equatable, Sendable {
     /// - меньше минуты — `N s`;
     /// - меньше часа — `N m`, секунды отбрасываются;
     /// - час и больше — `H h M m`, всегда обе части: `1 h 0 m`, `52 h 10 m`.
+    /// - от `.seconds(Int64.max)` — `≥2562047788015215 h`: насыщение вместо падения в `components`.
     ///
     /// Единицы ячейки и итога различаются намеренно — см. описание типа.
     public static func totalText(_ duration: Duration) -> String {
         if duration == .zero { return "0 s" }
         if duration < .seconds(1) { return "<1 s" }
+        if duration >= .seconds(Int64.max) { return "\u{2265}\(Int64.max / 3600) h" }
         let seconds = duration.components.seconds
         if seconds < 60 { return "\(seconds) s" }
         if seconds < 3600 { return "\(seconds / 60) m" }

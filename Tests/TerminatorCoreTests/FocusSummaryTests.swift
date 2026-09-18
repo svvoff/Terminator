@@ -745,6 +745,35 @@ struct FocusSummaryTests {
         #expect(acrossMonths.recordedDaysText == "0 of 7 days recorded")
         #expect(acrossMonths.rows.isEmpty)
     }
+
+    // MARK: - Насыщение
+
+    /// TASK-101. Итог от `Int64.max` секунд и выше насыщается вместо падения: иначе
+    /// `Duration.components` переполняется, а декодер принимает любую неотрицательную `Int` на
+    /// день, так что двух исправленных руками дней ≥ 2⁶² в окне достаточно. Падение убило бы
+    /// резидента, которого никто не перезапустит (DEC-006).
+    ///
+    /// Граница точна с обеих сторон: ровно `Int64.max` секунд — уже насыщение, на
+    /// наносекунду и на секунду меньше — ещё обычный путь. Первый символ — U+2265, пробела после
+    /// него нет, как у `<1 s`.
+    @Test func totalSaturatesInsteadOfTrapping() {
+        #expect(FocusSummary.totalText(.seconds(Int64.max) + .seconds(Int64.max)) == "≥2562047788015215 h")
+        #expect(FocusSummary.totalText(.seconds(Int64.max)) == "≥2562047788015215 h")
+        #expect(FocusSummary.totalText(.seconds(Int64.max)).unicodeScalars.first?.value == 0x2265)
+
+        #expect(FocusSummary.totalText(.seconds(Int64.max) - .nanoseconds(1)) == "2562047788015215 h 30 m")
+        #expect(FocusSummary.totalText(.seconds(Int64.max - 1)) == "2562047788015215 h 30 m")
+    }
+
+    /// TASK-101. Ячейка насыщается на той же границе, что и итог, и по той же причине.
+    @Test func cellSaturatesInsteadOfTrapping() {
+        #expect(FocusSummary.cellText(.seconds(Int64.max) + .seconds(Int64.max)) == "≥153722867280912930")
+        #expect(FocusSummary.cellText(.seconds(Int64.max)) == "≥153722867280912930")
+        #expect(FocusSummary.cellText(.seconds(Int64.max)).unicodeScalars.first?.value == 0x2265)
+
+        #expect(FocusSummary.cellText(.seconds(Int64.max) - .nanoseconds(1)) == "153722867280912930")
+        #expect(FocusSummary.cellText(.seconds(Int64.max - 1)) == "153722867280912930")
+    }
 }
 
 // MARK: - Хелперы

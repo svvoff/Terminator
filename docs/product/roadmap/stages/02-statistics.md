@@ -135,6 +135,30 @@ other's accrued seconds — the very week Stage 1 is waiting on.
 same log subsystem the focus data is read back from. A full run is the orchestrator's call, not
 the executor's default.
 
+### Amendment · 2026-09-18 — TASK-101 enters now, in two phases
+
+The paragraph above said TASK-101 does not enter `ready/` before the week closes. On 2026-09-18
+the author asked why the fold cannot be built on synthetic data in the meantime, and the question
+exposed that the constraint was stated about the **card** when it is really about two
+**actions**. What costs the week is rebuilding the bundle (`./build.sh` starts with
+`rm -rf build/Terminator.app` — the directory the resident runs from and the one the launchd plist
+names) and launching a second copy. Writing the code costs nothing: `swift build` writes only
+under `.build/`, and TASK-108 already ran six rounds under exactly that regime without touching
+the week.
+
+So TASK-101 was promoted on 2026-09-18 straight to `in-progress/`, and it is split:
+
+- **Phase A — now.** Code, unit tests on synthetic rollups, `swift build`, filtered `swift test`
+  that never selects `ConfigStoreTests`. No `./build.sh`, no launch. Ends with a code review, not
+  an acceptance.
+- **Phase B — after the author confirms the seventh day is collected.** Stage 1's per-day table is
+  computed from a copy of `focus.json` first; then the bundle is rebuilt, the resident replaced,
+  and the manual checklist run. Synthetic data does not move this line: the harm is in the process,
+  not in the data.
+
+The original paragraph is kept above because the reason in it is still true; what changed is
+which part of the card it binds.
+
 ## Success metrics
 
 - The author can answer "how long was I in Telegram this week" without opening a JSON file.
@@ -185,6 +209,6 @@ the executor's default.
 | Task | Name | Status |
 |---|---|---|
 | TASK-108 | Focus summary: core computation | `done/2026-09/` — accepted 2026-09-17 |
-| TASK-101 | Statistics UI: the Focus fold | `deferred/` until Stage 1's week closes |
+| TASK-101 | Statistics UI: the Focus fold | `in-progress/` since 2026-09-18 — Phase A (code) now, Phase B (build + checklist) after the week |
 
 Epic: EPIC-04 (Focus statistics), which shipped collection in Stage 1 and is not re-opened here.

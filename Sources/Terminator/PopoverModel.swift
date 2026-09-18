@@ -32,6 +32,18 @@ private let loginItemLog = Logger(
     category: TerminatorLog.Category.loginItem
 )
 
+/// Логгер секции «Focus». Категория `focus` — та же, в которую контроллер пишет чтение и слив
+/// файла фокуса: автор, сверяющий показанное с записанным, читает одну категорию, а не две.
+///
+/// Пишется отсюда ровно одна строка на построение секции, а построений два вида — открытие
+/// поповера и раскрытие секции. Строка на кадр означала бы, что сводку строят в теле вью, а
+/// оно перерисовывается раз в секунду; по этой строке фаза B и проверяет, что этого нет.
+/// Каждая интерполяция несёт `privacy: .public` (findings §14).
+private let focusSectionLog = Logger(
+    subsystem: TerminatorLog.subsystem,
+    category: TerminatorLog.Category.focus
+)
+
 /// Модель поповера: снимок состояния движка и хранилища плюс действия пользователя.
 ///
 /// **Живёт вне поповера.** Её держит `AppDelegate`, а не вью, потому что состояние глаз
@@ -102,6 +114,20 @@ final class PopoverModel {
     /// Снимается при любом следующем чтении.
     private(set) var loginItemRegistrationPending = false
 
+    /// Секция «Focus», построенная в последней из двух точек перестройки: открытие поповера и
+    /// раскрытие секции. Вью её только читает.
+    ///
+    /// Хранится, а не вычисляется: содержимое поповера перерисовывается раз в секунду, и сводка,
+    /// построенная там, пересортировывала бы строки под курсором по мере роста сегодняшнего
+    /// числа (предусловие `FocusSummary.rows`). Начальное значение — `.hidden`: до первого
+    /// открытия показывать нечего.
+    private(set) var focusSection: FocusSection = .hidden
+
+    /// Раскрыта ли секция «Focus». Только в памяти: модель живёт в `AppDelegate`, поэтому
+    /// раскрытие переживает закрытие и повторное открытие поповера и сбрасывается при
+    /// перезапуске. Ничего не персистится — ни в файл, ни куда-либо ещё.
+    private(set) var isFocusExpanded = false
+
     init(controller: WatchController) {
         self.controller = controller
     }
@@ -135,6 +161,9 @@ final class PopoverModel {
     func popoverDidOpen() {
         controller.reloadFromDisk()
         refresh()
+        // После `refresh()`: секция сводит правила, только что пришедшие с диска. До резолва
+        // имён: строки сводки из истории без правила тоже получают имена.
+        rebuildFocusSection(trigger: .open)
         // Строго после `refresh()`: имена резолвятся по тому набору правил, который только что
         // пришёл с диска, иначе правило, дописанное в файл руками, осталось бы без имени до
         // следующего открытия.
@@ -152,12 +181,17 @@ final class PopoverModel {
         displayNames[bundleIdentifier]
     }
 
-    /// Резолв имён — **одно чтение на открытие поповера, а не на кадр**.
+    /// Резолв имён — **одно чтение на открытие поповера и на раскрытие секции «Focus», а не на
+    /// кадр**. Оба — дискретные события: резолв идёт после каждой перестройки секции.
     ///
     /// Содержимое поповера перерисовывается раз в секунду ради отсчёта, а
     /// `urlForApplication(withBundleIdentifier:)` — запрос в LaunchServices. Один запрос на
     /// строку на кадр был бы платой за значение, которое при открытом поповере не меняется. Та
     /// же дисциплина уже применена к статусу автозапуска: одно чтение на открытие.
+    ///
+    /// **Набор — объединение** ключей правил и идентификаторов строк секции, если это сводка.
+    /// Только ключей правил мало: строка сводки из истории без правила осталась бы с голым
+    /// идентификатором, пока у соседей имена.
     ///
     /// **Имя берётся у Finder, а не из `Info.plist`.** Ключи не годятся: `CFBundleDisplayName`
     /// у `com.tdesktop.Telegram` отсутствует, а обёрнутое iOS-приложение
@@ -170,9 +204,13 @@ final class PopoverModel {
     /// Имя — presentation и ничего больше: в сортировку, в фильтрацию и ни в одно решение оно
     /// не входит. Порядок строк остаётся за ядром — по остатку, затем по `bundleIdentifier`.
     private func resolveDisplayNames() {
+        var identifiers = Set(config.rules.keys)
+        if case .summary(let summary) = focusSection {
+            identifiers.formUnion(summary.rows.map(\.bundleIdentifier))
+        }
         var resolved: [String: String] = [:]
-        resolved.reserveCapacity(config.rules.count)
-        for bundleIdentifier in config.rules.keys {
+        resolved.reserveCapacity(identifiers.count)
+        for bundleIdentifier in identifiers {
             guard
                 let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleIdentifier)
             else {
@@ -185,6 +223,49 @@ final class PopoverModel {
             resolved[bundleIdentifier] = name
         }
         displayNames = resolved
+    }
+
+    // MARK: - Секция «Focus»
+
+    /// Где построена секция. Уходит в строку лога и больше ни во что.
+    private enum FocusSectionTrigger: String {
+        case open
+        case expand
+    }
+
+    /// Раскрыть или свернуть секцию «Focus».
+    ///
+    /// Перестройка — **только на переходе «свёрнуто → раскрыто»**, а не на каждом вызове
+    /// сеттера: повторная установка того же значения не строит сводку и не пишет строку лога.
+    /// Свёртка ничего не строит — показывать нечего.
+    func setFocusExpanded(_ expanded: Bool) {
+        let opens = expanded && !isFocusExpanded
+        if opens {
+            rebuildFocusSection(trigger: .expand)
+            resolveDisplayNames()
+        }
+        isFocusExpanded = expanded
+    }
+
+    /// Перестраивает секцию из контроллера и пишет об этом одну строку лога.
+    ///
+    /// Зовётся ровно из двух мест: `popoverDidOpen()` и `setFocusExpanded(_:)`. Ни из
+    /// `refresh()` — он идёт на каждый вход движка, — ни из вью.
+    private func rebuildFocusSection(trigger: FocusSectionTrigger) {
+        focusSection = controller.focusSection()
+
+        let section: String
+        let rows: Int
+        let recorded: Int
+        switch focusSection {
+        case .hidden:
+            (section, rows, recorded) = ("hidden", 0, 0)
+        case .unreadable:
+            (section, rows, recorded) = ("unreadable", 0, 0)
+        case .summary(let summary):
+            (section, rows, recorded) = ("summary", summary.rows.count, summary.recordedDayCount)
+        }
+        focusSectionLog.notice("focus summary built: trigger=\(trigger.rawValue, privacy: .public) section=\(section, privacy: .public) rows=\(rows, privacy: .public) recorded=\(recorded, privacy: .public)")
     }
 
     // MARK: - Автозапуск

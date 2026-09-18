@@ -8,6 +8,7 @@ applies_to:
   - TASK-004
   - TASK-008
   - TASK-108
+  - TASK-101
 ---
 
 # DEC-006 — Anti-circumvention is a non-goal
@@ -86,6 +87,8 @@ persisting them; TASK-008 registers a legacy LaunchAgent plist and must not use
 TASK-108 (Stage 2, the focus summary) computes nothing whose purpose is to detect circumvention —
 no count of disabled rules, no streak, no "over the limit" figure. Added to `applies_to` on
 2026-09-17, when the router was found not to list the card that already cited this decision.
+TASK-101 (the Focus fold) shows that summary and nothing else of the kind; added on 2026-09-18,
+when the card was promoted.
 
 ## Review trigger
 
