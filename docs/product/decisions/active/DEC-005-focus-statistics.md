@@ -1,7 +1,7 @@
 ---
 id: DEC-005
 title: Focus statistics — scope, pause set, and why collection ships in the MVP
-applies_to: [TASK-003, TASK-007]
+applies_to: [TASK-003, TASK-007, TASK-108]
 ---
 
 # DEC-005 — Focus statistics: scope, pause set, and why collection ships in the MVP
@@ -104,6 +104,10 @@ empty database.
 - `TASK-007` — owns the focus rollup file and its schema, and implements the pause set, the
   system-wide subscription with in-engine filtering, transparent non-`.regular` activations,
   and the flush-before-clear invariant test.
+- `TASK-108` (Stage 2) — reads a rollup snapshot and summarises it. A reader only: it inherits
+  the watched-apps-only scope, and its numbers are the same floor on attention, never a measure
+  of it. Added to `applies_to` on 2026-09-17, when the router was found not to list the card
+  that already cited this decision.
 
 ## Review trigger
 

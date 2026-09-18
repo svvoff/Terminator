@@ -2,8 +2,13 @@
 
 ## Status
 
-**Active — opened 2026-09-15, no card accepted yet.** This is the second stage file the project
-has; `01-mvp.md` is the first and **is still open**, waiting out criteria 2 and 3.
+**Active — opened 2026-09-15; TASK-108 accepted 2026-09-17.** Exit criterion 1 is half met: the
+core is done and reviewed, the fold (TASK-101) is not. The core shipped without touching the
+bundle, exactly as the sequencing below demands, and Stage 1's collection week ran undisturbed
+through six rounds — measured, not assumed (see `docs/ai/execution-log/latest.md`, 2026-09-17).
+
+This is the second stage file the project has; `01-mvp.md` is the first and **is still open**,
+waiting out criteria 2 and 3.
 
 **Two stages are active at once, and that is deliberate.** Stage 1 has no cards left: its
 remainder is a week of ordinary use on the author's machine, which started 2026-09-15 when a
@@ -179,7 +184,7 @@ the executor's default.
 
 | Task | Name | Status |
 |---|---|---|
-| TASK-108 | Focus summary: core computation | `ready/` from 2026-09-15 |
+| TASK-108 | Focus summary: core computation | `done/2026-09/` — accepted 2026-09-17 |
 | TASK-101 | Statistics UI: the Focus fold | `deferred/` until Stage 1's week closes |
 
 Epic: EPIC-04 (Focus statistics), which shipped collection in Stage 1 and is not re-opened here.

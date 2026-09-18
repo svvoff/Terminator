@@ -1,288 +1,446 @@
-# Отчёт об исполнении
+# Отчёт об исполнении — раунд 6
 
 ## Задача
 
-**TASK-004 — Watch engine. Раунд 2** (после REQUEST_CHANGES по итогам ручного чеклиста).
-
-Задание — амендмент 3 карточки `docs/product/backlog/tasks/in-progress/TASK-004-watch-engine.md`.
-Секция «4. Launch time» той же карточки читалась как заведомо отменённая амендментом.
+TASK-108 — Focus summary: core computation. Раунд 6 (последний содержательный),
+пакет `docs/ai/handoff/current-task-packet.md`.
 
 ## Кратко
 
-Из `launchAnchor(of:)` удалён откат на `launchDate`: нет `p_starttime` — нет якоря, возвращается
-nil. Вместе с откатом ушла лог-строка `launch time degraded to launchDate`. Половина функции про
-сверку `launchDate` не менялась. Добавлен один юнит-тест редьюсера — критерий 25.
-`WatchEngine` и остальные девять файлов ядра и адаптеров не тронуты.
+Внесены T19–T24 — **только в тестовый файл**. Исходник `FocusSummary.swift` не менялся:
+хеш до и после совпал (`be36acfc68ef…13388877`), `git diff --no-index` против копии пуст.
+Сьют — 25 тестов (T19 вынесен отдельным тестом `enabledRuleIgnoresDataOutsideTheWindow`),
+один сьют, зелёный. Все шесть мутантов M30–M35 убиты названными в пакете тестами, файл после
+каждого восстановлен копированием.
 
-Тестов было 44, стало 45.
+Запрещённое не выполнялось: безфильтрового `swift test` не было, `./build.sh` не запускался,
+приложение не запускалось, `~/Library/Application Support/com.svvoff.terminator/` не трогался,
+git — только `status`/`diff`/`diff --no-index`.
 
 ## Изменённые файлы
 
 | Файл | Что изменено |
 |---|---|
-| `Sources/TerminatorAppKit/ProcessLaunchTime.swift` | `launchAnchor(of:)`: трёхстрочное тело `guard` заменено на `return nil`; удалена строка `engineLog.notice("launch time degraded to launchDate: …")`; док-комментарий переписан с трёх исходов на два и объясняет, почему откат не просто недостижим, а вреден |
-| `Tests/TerminatorCoreTests/WatchEngineTests.swift` | добавлен `deadProcessStillListedDoesNotResurrectSession()` (критерий 25); в док-комментарии `@Suite` диапазон «пункты 1–22» стал «пункты 1–22 и 25» |
-
-Больше ничего в дереве не менялось — ни исходников, ни тестов, ни `Package.swift`, ни доков,
-ни `build.sh`, ни скриптов.
-
-### Одна правка вне буквы «добавление одного теста» — раскрываю явно
-
-В `WatchEngineTests.swift` изменена **одна строка комментария**: заголовок сюиты говорил
-«Критерии приёмки TASK-004, пункты 1–22», а файл теперь покрывает ещё и 25-й. Ни один
-существующий тест не тронут: 22 из 23 тел `@Test` побайтово прежние. Если оркестратор считает
-это выходом за скоуп — строка откатывается одним движением, но тогда заголовок файла остаётся
-неверным.
+| `Tests/TerminatorCoreTests/FocusSummaryTests.swift` | T19 — новый тест `enabledRuleIgnoresDataOutsideTheWindow`; T20 и T21 — две пары в `summaryTypesConformToEquatableAndSendable` плюс расширенный док-комментарий; T22 — одно утверждение в `enabledRulesSurviveAnEmptyWindow`; T23 — окно через границу месяца в `denominatorCountsRecordedDaysOnly` плюс две строки док-комментария; T24 — две точки в `totalTextCoversEveryUnit` |
+| `Sources/TerminatorCore/FocusSummary.swift` | **не менялся** (мутации M30–M35 временные, откачены копированием; хеш совпал) |
+| `docs/ai/handoff/current-execution-report.md` | этот отчёт |
 
 ## Изменения поведения
 
-**Было.** `p_starttime` недоступен → берётся `launchDate` (если он есть), пишется
-`launch time degraded to launchDate`, процесс принимается движком с якорем `launchDate`.
+Продакшн-кода в раунде нет: поведение `FocusSummary` не изменилось ни на символ. Изменилась
+только сила тестов.
 
-**Стало.** `p_starttime` недоступен → `launchAnchor` возвращает nil → `ObservedProcess.startTime`
-равен nil → движок процесс **не принимает** и переоценивает на следующей сверке (это уже
-существующее поведение редьюсера, критерий 15, тест
-`processWithoutLaunchTimeDoesNotStartCountdown`).
+### Раунд 6: T19–T24 — что сделано по каждому пункту
 
-Что это чинит по трассе из пакета: в окне «процесс мёртв, но ещё в снимке
-`NSWorkspace.runningApplications`» (findings §4 — отставание до 19 с) откат подставлял
-`launchDate`, отличающийся от `p_starttime` на 8 мс. Ключ сессии `(pid, p_starttime)` расходился,
-и движок снимал настоящую сессию ложным `app-exited`, чтобы завести фантомную и сразу
-просроченную. Теперь в этом окне сверка делает ровно одно: снимает сессию, потому что пары
-`(pid, startTime)` в снимке нет, и ничего не заводит взамен.
+**T19 (minor). Итог включённого правила, у которого данные есть только вне окна.**
+Заведён отдельный тест `enabledRuleIgnoresDataOutsideTheWindow` (выбор отдельного теста, а не
+дополнения `rowsIncludeEnabledRuleWithNoData`, — поэтому в сьюте 25 тестов, а не 24: у случая своя
+посылка — данные есть, но окно их не видит, — и в док-комментарии она названа отдельно).
+Вход ровно из пакета: Safari **включён**, единственная запись — 300 с на 09-04 при `now` = 09-17.
+Утверждается: 09-04 в окно не входит, строка одна и она Safari, `perDay` — семь `nil`,
+`total == .zero`, `totalText == "0 s"`, `recordedDayCount == 0`.
+Доказательство силы — M30: без исправления реализация показывает `5 m`, ровно как предсказал пакет.
 
-`WatchEngine` не менялся сознательно: на данных, которые ему давал адаптер, он вёл себя
-правильно. Дефект был в адаптере, сообщавшем время старта мёртвого процесса.
+**T20 (minor). Равенство сводки держится не на строках.**
+В `summaryTypesConformToEquatableAndSendable` добавлена пара, различающаяся **только строками**:
+`{09-14: [telegram: 600]}` против `{09-14: [safari: 600]}`. Отдельными утверждениями закреплено,
+что `days` и `recordedDayCount` у них совпадают, — иначе пара не отличалась бы от прежней. Убивает
+M31.
+
+**T21 (minor). Равенство строки держится не на ячейках.**
+Там же — пара строк с одинаковым идентификатором и одинаковым итогом, но разными днями: 600 с на
+09-12 против 600 с на 09-14. Закреплено, что `bundleIdentifier` и `total` равны, а `perDay` — нет.
+Убивает M32.
+
+**T22 (nit). Равенство строки без `bundleIdentifier`.**
+В `enabledRulesSurviveAnEmptyWindow` добавлено `#expect(summary.rows[0] != summary.rows[1])`: две
+строки пустой недели совпадают до символа во всём, кроме идентификатора. Убивает M33.
+
+**T23 (nit). Знаменатель как лексикографический диапазон вместо принадлежности окну.**
+В `denominatorCountsRecordedDaysOnly` добавлен сценарий с окном через границу месяца: `now` =
+2026-07-02 (окно 06-26 … 07-02), в свёртке ключ `DayKey(year: 2026, month: 6, day: 31)`. Утверждается
+и сам разрыв: ключ **не** день окна, но `days[0] < 06-31 < days[6]` по `Comparable`. Ожидания —
+`recordedDayCount == 0`, `"0 of 7 days recorded"`, `rows.isEmpty`. Убивает M34.
+
+**T24 (nit). Верхний край таблицы итогов.**
+В `totalTextCoversEveryUnit` добавлены `.seconds(360_000)` → `"100 h 0 m"` и `.seconds(604_740)` →
+`"167 h 59 m"`. Убивает M35.
+
+**Ожидания не подгонялись.** Все шесть добавленных ожиданий прошли на неизменённой реализации с
+первого прогона; ни одно не переписывалось под полученный результат.
 
 ## Доказательства валидации
 
-Перед прогоном `.build` удалён целиком, чтобы вывод компилятора был настоящим, а не кэшем.
-
 | Команда | Результат | Вывод |
 |---|---|---|
-| `swift build` | EXIT=0, `warning:` — 0 строк | см. ниже |
-| `swift build -c release` | EXIT=0, `warning:` — 0 строк | см. ниже |
-| `swift test` | EXIT=0, **45 тестов**, `warning:` — 0 строк | см. ниже |
-| `swift test -c release` | EXIT=0, **45 тестов**, `warning:` — 0 строк | см. ниже |
-| `scripts/check-forbidden.sh` | EXIT=0 | `OK:    запрещённых конструкций не найдено` |
-| `./build.sh` | EXIT=0, терминальный шаг `codesign --verify --strict` молчит | см. ниже |
+| `shasum -a 256 Sources/TerminatorCore/FocusSummary.swift` (до правок) | `be36acfc68ef…13388877` | совпал с пакетом |
+| `swift test --filter FocusSummaryTests` | EXIT=0 | 25 тестов, один сьют «Сводка фокуса» |
+| M30 | EXIT=1, упал `enabledRuleIgnoresDataOutsideTheWindow` | ниже |
+| M31 | EXIT=1, упал `summaryTypesConformToEquatableAndSendable` | ниже |
+| M32 | EXIT=1, упал `summaryTypesConformToEquatableAndSendable` | ниже |
+| M33 | EXIT=1, упали `enabledRulesSurviveAnEmptyWindow` и `summaryTypesConformToEquatableAndSendable` | ниже |
+| M34 | EXIT=1, упал `denominatorCountsRecordedDaysOnly` | ниже |
+| M35 | EXIT=1, упал `totalTextCoversEveryUnit` | ниже |
+| `shasum -a 256` после всех восстановлений | `be36acfc68ef…13388877` | совпал |
+| `git diff --no-index "$TMPDIR/FocusSummary.r5.swift" Sources/…/FocusSummary.swift` | `diff rc=0` | дифф пуст |
+| `swift test --filter FocusSummaryTests` (финальный) | EXIT=0 | 25/25 |
+| `swift build` | EXIT=0 | `grep -c 'warning:'` → **0** |
+| `swift build -c release` | EXIT=0 | `grep -c 'warning:'` → **0** |
+| `scripts/check-forbidden.sh` | EXIT=0 | `OK: запрещённых конструкций не найдено` |
+| грепы 1 и 2 | `rc=1` (пусто) | ниже |
 
-### `swift build`
+### 1. Хеш исходника до правок и копия
 
 ```
-$ rm -rf .build && swift build
+be36acfc68ef8cde3de730c9733f72763279554c2dc2f4d0a60fb9aa13388877  $TMPDIR/FocusSummary.r5.swift
+0a273e1fbb2dfea854ccd1e729d33f4b0942f1e3abe2981c6c1256ff80a39b66  $TMPDIR/FocusSummaryTests.r5.swift
+```
+
+### 2. Фильтрованный прогон после правок (полный вывод тестовой части)
+
+```
+EXIT=0
 Building for debugging...
-[0/8] Write sources
-[3/8] Write Terminator-entitlement.plist
-[4/8] Write swift-version--58304C5D6DBC2206.txt
-[6/23] Compiling TerminatorCore ObservedProcess.swift
-...
-[27/31] Compiling TerminatorAppKit ProcessLaunchTime.swift
-[28/31] Emitting module TerminatorAppKit
-[29/34] Emitting module Terminator
-[30/34] Compiling Terminator TerminatorApp.swift
-[31/34] Compiling Terminator PlaceholderView.swift
-[32/34] Linking Terminator
-[33/34] Applying Terminator
-Build complete! (9.31s)
+[4/8] Compiling TerminatorCore FocusSummary.swift
+[7/8] Compiling TerminatorCoreTests FocusSummaryTests.swift
+Build complete! (3.18s)
+◇ Test run started.
+↳ Testing Library Version: 1902
+↳ Target Platform: arm64e-apple-macos14.0
+◇ Suite "Сводка фокуса" started.
+◇ Test summaryTypesConformToEquatableAndSendable() started.
+◇ Test windowCrossesDaylightSavingCorrectly() started.
+◇ Test orderIsTotalDescendingThenBundleIdentifier() started.
+◇ Test identifiersMatchExactlyNotByPrefixOrCase() started.
+◇ Test orderUsesExactTotalsNotWholeSeconds() started.
+◇ Test enabledRulesSurviveAnEmptyWindow() started.
+◇ Test zeroValuedEntryStillProducesARow() started.
+◇ Test subSecondTotalIsNotZero() started.
+◇ Test emptyDayKeyShowsZeroInCells() started.
+◇ Test cellsTruncateDownNeverUp() started.
+◇ Test windowIsSevenDaysEndingToday() started.
+◇ Test zeroTotalRowsAreOrderedByIdentifier() started.
+◇ Test rowsExcludeDisabledRuleWithoutData() started.
+◇ Test rowSetIsNotTruncated() started.
+◇ Test enabledRuleIgnoresDataOutsideTheWindow() started.
+◇ Test denominatorCountsRecordedDaysOnly() started.
+◇ Test subMinuteRendersAsLessThanOne() started.
+◇ Test rowsExcludeDataOutsideWindow() started.
+◇ Test missingDayIsNilNotZero() started.
+◇ Test totalTextCoversEveryUnit() started.
+◇ Test rowsIncludeDataOnOldestWindowDay() started.
+◇ Test subMillisecondRemainderSurvivesSummation() started.
+◇ Test rowsIncludeEnabledRuleWithNoData() started.
+◇ Test recordedDayWithoutAppIsZero() started.
+◇ Test rowsIncludeHistoryWithoutARule() started.
+✔ Test emptyDayKeyShowsZeroInCells() passed after 0.001 seconds.
+✔ Test subSecondTotalIsNotZero() passed after 0.001 seconds.
+✔ Test windowIsSevenDaysEndingToday() passed after 0.001 seconds.
+✔ Test cellsTruncateDownNeverUp() passed after 0.001 seconds.
+✔ Test rowsExcludeDisabledRuleWithoutData() passed after 0.001 seconds.
+✔ Test zeroTotalRowsAreOrderedByIdentifier() passed after 0.001 seconds.
+✔ Test windowCrossesDaylightSavingCorrectly() passed after 0.001 seconds.
+✔ Test zeroValuedEntryStillProducesARow() passed after 0.001 seconds.
+✔ Test orderIsTotalDescendingThenBundleIdentifier() passed after 0.001 seconds.
+✔ Test orderUsesExactTotalsNotWholeSeconds() passed after 0.001 seconds.
+✔ Test enabledRulesSurviveAnEmptyWindow() passed after 0.001 seconds.
+✔ Test enabledRuleIgnoresDataOutsideTheWindow() passed after 0.001 seconds.
+✔ Test rowsExcludeDataOutsideWindow() passed after 0.001 seconds.
+✔ Test totalTextCoversEveryUnit() passed after 0.001 seconds.
+✔ Test identifiersMatchExactlyNotByPrefixOrCase() passed after 0.001 seconds.
+✔ Test recordedDayWithoutAppIsZero() passed after 0.001 seconds.
+✔ Test rowsIncludeDataOnOldestWindowDay() passed after 0.001 seconds.
+✔ Test denominatorCountsRecordedDaysOnly() passed after 0.001 seconds.
+✔ Test summaryTypesConformToEquatableAndSendable() passed after 0.001 seconds.
+✔ Test rowSetIsNotTruncated() passed after 0.001 seconds.
+✔ Test subMinuteRendersAsLessThanOne() passed after 0.001 seconds.
+✔ Test subMillisecondRemainderSurvivesSummation() passed after 0.001 seconds.
+✔ Test missingDayIsNilNotZero() passed after 0.001 seconds.
+✔ Test rowsIncludeHistoryWithoutARule() passed after 0.001 seconds.
+✔ Test rowsIncludeEnabledRuleWithNoData() passed after 0.001 seconds.
+✔ Suite "Сводка фокуса" passed after 0.001 seconds.
+✔ Test run with 25 tests in 1 suite passed after 0.001 seconds.
+```
+
+Один сьют, посторонних сьютов в выводе нет. Строка `Executed 0 tests` выше относится к пустому
+XCTest-набору (весь сьют — swift-testing) и появляется в каждом прогоне этой задачи.
+
+### 3. Мутации M30–M35
+
+Схема каждой: правка рабочего файла исходника → `swift test --filter FocusSummaryTests` →
+дословные строки провала → `cp "$TMPDIR/FocusSummary.r5.swift" Sources/TerminatorCore/FocusSummary.swift`
+→ `shasum` совпал. Восстановление — **копированием**, git не использовался.
+
+#### M30 — при нулевой сумме по окну брать сумму по всей свёртке
+
+Было:
+
+```swift
+let total = perDay.reduce(Duration.zero) { sum, cell in sum + (cell ?? .zero) }
+```
+
+Стало:
+
+```swift
+var total = perDay.reduce(Duration.zero) { sum, cell in sum + (cell ?? .zero) }
+if total == .zero {
+    total = rollup.days.values.reduce(Duration.zero) { sum, apps in
+        sum + (apps[bundleIdentifier] ?? .zero)
+    }
+}
+```
+
+Упал ровно названный тест:
+
+```
+✘ Test enabledRuleIgnoresDataOutsideTheWindow() recorded an issue at FocusSummaryTests.swift:352:9: Expectation failed: (row.total → 300.0 seconds) == (.zero → 0.0 seconds)
+✘ Test enabledRuleIgnoresDataOutsideTheWindow() recorded an issue at FocusSummaryTests.swift:353:9: Expectation failed: (FocusSummary.totalText(row.total) → "5 m") == "0 s"
+✘ Test enabledRuleIgnoresDataOutsideTheWindow() failed after 0.001 seconds with 2 issues.
+✘ Test run with 25 tests in 1 suite failed after 0.001 seconds with 2 issues.
+```
+
+Других упавших тестов нет. Видимое неверное число — `5 m` — совпало с предсказанием пакета.
+Хеш после восстановления: `be36acfc68ef8cde3de730c9733f72763279554c2dc2f4d0a60fb9aa13388877`.
+
+#### M31 — `FocusSummary.==` сравнивает только `days` и `recordedDayCount`
+
+Добавлено в `FocusSummary` (синтезированное равенство подавляется рукописным):
+
+```swift
+public static func == (lhs: FocusSummary, rhs: FocusSummary) -> Bool {
+    lhs.days == rhs.days && lhs.recordedDayCount == rhs.recordedDayCount
+}
+```
+
+```
+✘ Test summaryTypesConformToEquatableAndSendable() recorded an issue at FocusSummaryTests.swift:653:9: Expectation failed: (oneApp → FocusSummary(days: [2026-09-11, …, 2026-09-17], recordedDayCount: 1, rows: [TerminatorCore.FocusSummaryRow(bundleIdentifier: "ru.keepcoder.Telegram", total: 600.0 seconds, perDay: [nil, nil, nil, Optional(600.0 seconds), nil, nil, nil])])) != (anotherApp → FocusSummary(days: [2026-09-11, …, 2026-09-17], recordedDayCount: 1, rows: [TerminatorCore.FocusSummaryRow(bundleIdentifier: "com.apple.Safari", total: 600.0 seconds, perDay: [nil, nil, nil, Optional(600.0 seconds), nil, nil, nil])]))
+✘ Test summaryTypesConformToEquatableAndSendable() failed after 0.002 seconds with 1 issue.
+✘ Test run with 25 tests in 1 suite failed after 0.002 seconds with 1 issue.
+```
+
+Упала именно новая пара T20; прежняя пара раунда 4 (`summary != other`) мутанта, как и
+предсказывал ревьюер, не ловит. Хеш после восстановления совпал.
+
+#### M32 — `FocusSummaryRow.==` без `perDay`
+
+```swift
+public static func == (lhs: FocusSummaryRow, rhs: FocusSummaryRow) -> Bool {
+    lhs.bundleIdentifier == rhs.bundleIdentifier && lhs.total == rhs.total
+}
+```
+
+```
+✘ Test summaryTypesConformToEquatableAndSendable() recorded an issue at FocusSummaryTests.swift:672:9: Expectation failed: (earlierRow → FocusSummaryRow(bundleIdentifier: "ru.keepcoder.Telegram", total: 600.0 seconds, perDay: [nil, Optional(600.0 seconds), nil, nil, nil, nil, nil])) != (laterRow → FocusSummaryRow(bundleIdentifier: "ru.keepcoder.Telegram", total: 600.0 seconds, perDay: [nil, nil, nil, Optional(600.0 seconds), nil, nil, nil]))
+✘ Test summaryTypesConformToEquatableAndSendable() failed after 0.001 seconds with 1 issue.
+✘ Test run with 25 tests in 1 suite failed after 0.002 seconds with 1 issue.
+```
+
+Упала пара T21. Хеш после восстановления совпал.
+
+#### M33 — `FocusSummaryRow.==` без `bundleIdentifier`
+
+```swift
+public static func == (lhs: FocusSummaryRow, rhs: FocusSummaryRow) -> Bool {
+    lhs.total == rhs.total && lhs.perDay == rhs.perDay
+}
+```
+
+```
+✘ Test enabledRulesSurviveAnEmptyWindow() recorded an issue at FocusSummaryTests.swift:384:9: Expectation failed: (summary.rows[0] → FocusSummaryRow(bundleIdentifier: "com.apple.Safari", total: 0.0 seconds, perDay: [nil, nil, nil, nil, nil, nil, nil])) != (summary.rows[1] → FocusSummaryRow(bundleIdentifier: "ru.keepcoder.Telegram", total: 0.0 seconds, perDay: [nil, nil, nil, nil, nil, nil, nil]))
+✘ Test enabledRulesSurviveAnEmptyWindow() failed after 0.001 seconds with 1 issue.
+✘ Test summaryTypesConformToEquatableAndSendable() recorded an issue at FocusSummaryTests.swift:653:9: Expectation failed: (oneApp → …rows: [… "ru.keepcoder.Telegram" …]) != (anotherApp → …rows: [… "com.apple.Safari" …])
+✘ Test run with 25 tests in 1 suite failed after 0.002 seconds with 2 issues.
+```
+
+Названный пакетом тест упал; вторым его поймала пара T20 — там строки тоже различаются только
+идентификатором. Хеш после восстановления совпал.
+
+#### M34 — знаменатель как диапазон `days[0] ... days[6]` по `Comparable`
+
+Было:
+
+```swift
+self.recordedDayCount = recorded.filter { $0 != nil }.count
+```
+
+Стало:
+
+```swift
+self.recordedDayCount = rollup.days.keys.filter {
+    $0 >= days[0] && $0 <= days[Self.dayCount - 1]
+}.count
+```
+
+```
+✘ Test denominatorCountsRecordedDaysOnly() recorded an issue at FocusSummaryTests.swift:744:9: Expectation failed: (acrossMonths.recordedDayCount → 1) == 0
+✘ Test denominatorCountsRecordedDaysOnly() recorded an issue at FocusSummaryTests.swift:745:9: Expectation failed: (acrossMonths.recordedDaysText → "1 of 7 days recorded") == "0 of 7 days recorded"
+✘ Test denominatorCountsRecordedDaysOnly() failed after 0.001 seconds with 2 issues.
+✘ Test run with 25 tests in 1 suite failed after 0.001 seconds with 2 issues.
+```
+
+Упал только сценарий через границу месяца — все сентябрьские сценарии этого теста мутанта, как и
+предсказано, не различают. Хеш после восстановления совпал.
+
+#### M35 — `totalText` переключается на дни после 100 ч
+
+```swift
+if seconds >= 360_000 {
+    return "\(seconds / 3600 / 24) d \(seconds / 3600 % 24) h"
+}
+return "\(seconds / 3600) h \(seconds % 3600 / 60) m"
+```
+
+```
+✘ Test totalTextCoversEveryUnit() recorded an issue at FocusSummaryTests.swift:270:9: Expectation failed: (FocusSummary.totalText(.seconds(360_000)) → "4 d 4 h") == "100 h 0 m"
+✘ Test totalTextCoversEveryUnit() recorded an issue at FocusSummaryTests.swift:271:9: Expectation failed: (FocusSummary.totalText(.seconds(604_740)) → "6 d 23 h") == "167 h 59 m"
+✘ Test totalTextCoversEveryUnit() failed after 0.001 seconds with 2 issues.
+✘ Test run with 25 tests in 1 suite failed after 0.001 seconds with 2 issues.
+```
+
+`4 d 4 h` — дословно то, что назвал пакет. Хеш после восстановления совпал.
+
+### 4. Исходник не менялся
+
+```
+$ shasum -a 256 Sources/TerminatorCore/FocusSummary.swift
+be36acfc68ef8cde3de730c9733f72763279554c2dc2f4d0a60fb9aa13388877  Sources/TerminatorCore/FocusSummary.swift
+$ git diff --no-index "$TMPDIR/FocusSummary.r5.swift" Sources/TerminatorCore/FocusSummary.swift
+diff rc=0 (0 = пусто)
+```
+
+Хеш тестового файла после правок: `6f4f148345fe6415fdd33ff8bf04fb0ef59f31a1ddf6f45b3bee46e8c7e31e2e`.
+
+### 5. Финальный прогон после восстановления
+
+```
 EXIT=0
-grep -c 'warning:' → 0
+✔ Test missingDayIsNilNotZero() passed after 0.001 seconds.
+✔ Test recordedDayWithoutAppIsZero() passed after 0.001 seconds.
+✔ Test windowCrossesDaylightSavingCorrectly() passed after 0.001 seconds.
+✔ Test summaryTypesConformToEquatableAndSendable() passed after 0.001 seconds.
+✔ Suite "Сводка фокуса" passed after 0.002 seconds.
+✔ Test run with 25 tests in 1 suite passed after 0.002 seconds.
 ```
 
-### `swift build -c release`
+### 6. Сборки (с `touch` перед каждой)
 
 ```
-$ swift build -c release
-Building for production...
-[0/6] Write sources
-[3/6] Write swift-version--58304C5D6DBC2206.txt
-[5/7] Compiling TerminatorCore ConfigFormat.swift
-[6/8] Compiling TerminatorAppKit EngineLogRenderer.swift
-[7/9] Compiling Terminator PlaceholderView.swift
-[8/9] Linking Terminator
-Build complete! (6.78s)
-EXIT=0
-grep -c 'warning:' → 0
+DEBUG EXIT=0
+0
+[3/6] Emitting module TerminatorCore
+[4/6] Compiling TerminatorCore FocusSummary.swift
+Build complete! (0.38s)
+
+RELEASE EXIT=0
+0
+[1/3] Write swift-version--58304C5D6DBC2206.txt
+[3/4] Compiling TerminatorCore AwakeInstant.swift
+Build complete! (3.17s)
 ```
 
-### `swift test`
+`grep -c 'warning:'` → `0` в обеих: **ноль** предупреждений и в debug, и в release.
 
-```
-$ swift test
-Test Suite 'All tests' passed at 2026-08-28 09:22:18.514.
-◇ Test deadProcessStillListedDoesNotResurrectSession() started.
-✔ Test deadProcessStillListedDoesNotResurrectSession() passed after 0.029 seconds.
-✔ Suite "Доменная модель правила" passed after 0.030 seconds.
-✔ Suite "Движок наблюдения" passed after 0.030 seconds.
-✔ Suite "Формат конфига на диске" passed after 0.062 seconds.
-✔ Suite "Хранилище конфига: карантин, уборка, путь" passed after 0.062 seconds.
-✔ Suite "Долговечная запись" passed after 0.074 seconds.
-✔ Test run with 45 tests in 5 suites passed after 0.074 seconds.
-EXIT=0
-grep -c 'warning:' → 0
-```
-
-### `swift test -c release`
-
-```
-$ swift test -c release
-◇ Test deadProcessStillListedDoesNotResurrectSession() started.
-✔ Test deadProcessStillListedDoesNotResurrectSession() passed after 0.036 seconds.
-✔ Suite "Движок наблюдения" passed after 0.039 seconds.
-✔ Suite "Доменная модель правила" passed after 0.051 seconds.
-✔ Suite "Формат конфига на диске" passed after 0.069 seconds.
-✔ Suite "Хранилище конфига: карантин, уборка, путь" passed after 0.077 seconds.
-✔ Suite "Долговечная запись" passed after 0.090 seconds.
-✔ Test run with 45 tests in 5 suites passed after 0.090 seconds.
-EXIT=0
-grep -c 'warning:' → 0
-```
-
-### Счёт тестов: 44 → 45, ровно один новый
-
-Базовый прогон **до** правки, на том же дереве:
-
-```
-$ swift test
-✔ Test run with 45 tests in 5 suites passed  ← после
-✔ Test run with 44 tests in 5 suites passed  ← до (снято перед началом работы)
-```
-
-`grep -c "@Test func" Tests/TerminatorCoreTests/WatchEngineTests.swift` → **23** (было 22).
-Ни один из 44 прежних тестов не падал ни в одном из четырёх прогонов и ни один не правился.
-
-### `scripts/check-forbidden.sh`
+### 7. Гейты и грепы
 
 ```
 $ scripts/check-forbidden.sh
 OK:    запрещённых конструкций не найдено
 EXIT=0
-```
 
-### `./build.sh`
+$ grep -n -E 'focusStore\.load|Calendar\.current|TimeZone\.current|Date\(\)|86400|86_400|86 400|24 \* 60 \* 60|24 \* 3600|Bundle\.module|Logger|import AppKit|import SwiftUI|@testable' \
+    Sources/TerminatorCore/FocusSummary.swift Tests/TerminatorCoreTests/FocusSummaryTests.swift
+grep1 rc=1 (1 = пусто)
 
+$ grep -n -i -E 'productiv|efficien|wasted|attention|trend|average|best|worst|streak|продуктивн|эффективн|впустую|внимани|тренд|средн|лучш|худш' \
+    Sources/TerminatorCore/FocusSummary.swift Tests/TerminatorCoreTests/FocusSummaryTests.swift
+grep2 rc=1 (1 = пусто)
 ```
-$ ./build.sh
---- swift build -c debug ---
-Building for debugging...
-Build complete! (0.14s)
---- assemble build/Terminator.app ---
---- codesign --force --sign "Terminator Dev" (последняя мутация бандла) ---
-build/Terminator.app: replacing existing signature
---- designated requirement guard ---
-designated requirement: identifier "com.svvoff.terminator" and certificate leaf = H"74d582911cd0b2c7ff3961af4bb0561efd6a8f24"
---- codesign --verify --strict (терминальный шаг) ---
-EXIT=0
-```
-
-Подпись — `Terminator Dev`, ad-hoc не использовался, порядок шагов в `build.sh` не менялся.
 
 ## Acceptance criteria
 
 | Критерий | Статус | Чем подтверждён |
 |---|---|---|
-| Амендмент 3, п. 1: `launchAnchor(of:)` не откатывается на `launchDate` | выполнен | дифф: тело `guard` — `return nil`; `grep -rn "degraded" Sources Tests scripts build.sh` → пусто |
-| Амендмент 3, п. 2: `launchDate` остаётся сверкой, `p_starttime` побеждает при расхождении > 0.4 с | выполнен | дифф: блок `if let launchDate { … disagreement > 0.4 … }` не изменён ни на символ |
-| Амендмент 3, п. 2: лог-строка `launch time degraded to launchDate` удалена | выполнен | `grep -rn "degraded" Sources Tests scripts build.sh` → ничего |
-| **Критерий 25** `deadProcessStillListedDoesNotResurrectSession` | выполнен | тест зелёный в debug и release; сессия снимается ровно одним `app-exited` (`sweep.logKinds == [.appExited]`), `activeSessions` пуст, `quitRequests` пуст на сверке и на всех тиках до +600 с |
-| Критерий 15 (не менялся, теперь покрывает всю историю) | выполнен | `processWithoutLaunchTimeDoesNotStartCountdown` зелёный без правок |
-| Критерии 1–22 раунда 1 | выполнены | 22 теста сюиты «Движок наблюдения» зелёные без единой правки |
-| Ручной чеклист | **требует человека** | см. «Не запускалось» |
+| 1. Сьют только на Foundation + Testing + TerminatorCore, без sleep, ФС и реальных часов | выполнен | новый код раунда использует те же хелперы `moment`/`day`/`rules`; греп на `@testable`, `Date()`, `Calendar.current`, `TimeZone.current` пуст |
+| 2. Тесты 1–13 с дословными именами | выполнен | прогон: все прежние имена на месте, T19–T24 их не переименовывали |
+| 3. Мутация M1 | выполнен ранее (раунды 1–2) | в этом раунде не перепрогонялась: исходник побайтно тот же, что в раунде 5 |
+| 4. Мутации M2, M3 | то же | то же |
+| 5. `swift build` и `swift build -c release` зелёные, ноль `warning:` | выполнен | §6 |
+| 6. `scripts/check-forbidden.sh` зелёный | выполнен | §7 |
+| 7. Нет файлов под `Sources/Terminator/`; запрещённые конструкции отсутствуют | выполнен | §7 и `git status --short` ниже |
+| 8. Запрещённые слова отсутствуют | выполнен | греп 2 пуст |
+| 9. API в точности как в разделе «API» | выполнен | исходник не менялся, хеш совпал |
+| 10. Строки форматирования в точности как в таблицах | выполнен | `totalTextCoversEveryUnit` (включая новые `100 h 0 m` и `167 h 59 m`), `cellsTruncateDownNeverUp` |
+| 11. Безфильтровый `swift test`, `./build.sh`, запуск приложения **не выполнялись** | выполнен | все прогоны — только `swift test --filter FocusSummaryTests`; сборки — `swift build` в `.build/` |
 
-### Как именно критерий 25 проверяется тестом
+Валидация раунда 6 по пакету:
 
-Сессия заводится на `p_starttime` (`pid 501`, старт `t(-600)`, лимит 10 мин) и доводится до
-`.awaitingQuit` тиком на дедлайне — то же состояние, что в трассе с машины автора. Затем
-приходит `.reconcile`, в снимке которого тот же `pid 501`, тот же bundle id, `.regular`, но
-`startTime == nil`. Проверяется:
-
-- `sweep.logKinds == [.appExited]` — ровно одно событие, не два и не три;
-- `sweep.quitRequests.isEmpty` — второго `quit-requested` нет;
-- `engine.activeSessions.isEmpty` — фантомная сессия не заведена;
-- цикл до +600 с: повторные сверки с тем же снимком возвращают пустой массив эффектов, тики
-  не эмитят `.requestQuit`, `activeSessions` остаётся пустым.
+| Пункт | Статус | Чем подтверждён |
+|---|---|---|
+| Хеш исходника до и после совпал, дифф пуст | выполнен | §1, §4 |
+| Один сьют, 24 или 25 тестов | выполнен | **25** (T19 вынесен отдельным тестом — выбор назван в разделе T19) |
+| Мутации M30–M35 с восстановлением | выполнен | §3, шесть мутантов мертвы, каждый уронил названный тест |
+| Шаги 4–6 раунда 1 | выполнен | §5, §6, §7 |
 
 ## Не запускалось
 
-- **Ручной чеклист (`validation_profile: [manual-checklist]`) — не засчитан и засчитан быть не
-  может.** Человеку нужно перезапустить испытание 1 на исправленной сборке
-  (`./build.sh && ./build/Terminator.app/Contents/MacOS/Terminator`), закрыть наблюдаемое
-  приложение по дедлайну и убедиться в логе, что:
-  строки `launch time degraded to launchDate` нет вовсе; одно закрытие даёт **один**
-  `quit-requested` и **один** `app-exited`; строки `countdown-started` на якоре, отличающемся от
-  `p_starttime`, не появляется.
-- **Против живых приложений ничего не запускалось.** Ни одного Apple Event, ни одного quit,
-  собранное приложение не запускалось. `./build.sh` только собирает и подписывает.
-- **Адаптер юнит-тестами не покрыт и покрыт быть не может** в этой форме: `launchAnchor(of:)`
-  принимает `NSRunningApplication`, который нельзя сконструировать в тесте. Отсюда честная
-  оговорка: новый тест — это **фиксация контракта редьюсера**, а не red-green доказательство
-  правки адаптера. До правки он тоже был бы зелёным, потому что редьюсер не менялся. Он ловит
-  будущую регрессию в движке; правку адаптера подтверждает только ручной чеклист.
+- **Безфильтровый `swift test`** — запрещён пакетом: `ConfigStoreTests` пишет в ту же подсистему
+  логов, откуда снимаются доказательства недели сбора. Заменён фильтрованным прогоном; остаточный
+  риск — регрессия в других сьютах этой правкой невозможна: изменён только файл
+  `FocusSummaryTests.swift`, на который никто не ссылается.
+- **`./build.sh` и запуск приложения** — запрещены (findings §12, второй экземпляр затирает
+  накопленные секунды). Заменены `swift build` и `swift build -c release`, которые пишут в
+  `.build/` и резидента не трогают.
+- **Мутанты M1–M29** прошлых раундов не перепрогонялись: исходник побайтно тот же, что в раунде 5
+  (хеш `be36acfc68ef…13388877`), а тесты только добавлялись — ни один не ослаблен и не удалён.
+- Пунктов `manual-checklist` в профиле карточки нет; человеку проверять нечего.
 
 ## Проверка скоупа
 
-Затронуты ровно две разрешённые зоны:
-
 ```
-Sources/TerminatorAppKit/ProcessLaunchTime.swift   (функция launchAnchor(of:) и её док-комментарий)
-Tests/TerminatorCoreTests/WatchEngineTests.swift   (один добавленный тест + одна строка док-комментария сюиты)
-```
-
-Не тронуты, как требуют не-цели: `WatchEngine.swift`, `EngineInput.swift`, `EngineEffect.swift`,
-`ProcessSession.swift`, `QuitOutcome.swift`, `ExpiryAction.swift`, `Now.swift`,
-`ObservedProcess.swift`, `QuitSender.swift`, `RunningApplicationsObserver.swift`,
-`WatchController.swift`, `EngineLogRenderer.swift`, `TerminatorApp.swift`, `Package.swift`.
-Ни один из 22 существующих тестов не изменён. Карточки решений, findings, бэклог и статусы задач
-не трогались.
-
-`git status --short` после правки — побайтово тот же список, что и до неё (оба изменённых файла
-уже были untracked с раунда 1, новых файлов не появилось):
-
-```
- M Sources/Terminator/TerminatorApp.swift
+$ git status --short
  M docs/ai/current-context.md
- M docs/ai/execution-state.md
  M docs/ai/handoff/current-execution-report.md
  M docs/ai/handoff/current-task-packet.md
-RM docs/product/backlog/tasks/ready/TASK-004-watch-engine.md -> docs/product/backlog/tasks/in-progress/TASK-004-watch-engine.md
- M docs/product/decisions/active/DEC-002-expiry-action.md
-?? Sources/TerminatorAppKit/EngineLogRenderer.swift
-?? Sources/TerminatorAppKit/ProcessLaunchTime.swift
-?? Sources/TerminatorAppKit/QuitSender.swift
-?? Sources/TerminatorAppKit/RunningApplicationsObserver.swift
-?? Sources/TerminatorAppKit/WatchController.swift
-?? Sources/TerminatorCore/EngineEffect.swift
-?? Sources/TerminatorCore/EngineInput.swift
-?? Sources/TerminatorCore/ExpiryAction.swift
-?? Sources/TerminatorCore/Now.swift
-?? Sources/TerminatorCore/ObservedProcess.swift
-?? Sources/TerminatorCore/ProcessSession.swift
-?? Sources/TerminatorCore/QuitOutcome.swift
-?? Sources/TerminatorCore/WatchEngine.swift
-?? Tests/TerminatorCoreTests/WatchEngineTests.swift
+RM docs/product/backlog/tasks/ready/TASK-108-focus-summary-core.md -> docs/product/backlog/tasks/in-progress/TASK-108-focus-summary-core.md
+ M docs/product/decisions/active/DEC-005-focus-statistics.md
+ M docs/product/decisions/active/DEC-006-anti-circumvention-non-goal.md
+ M docs/product/decisions/index.md
+?? Sources/TerminatorCore/FocusSummary.swift
+?? Tests/TerminatorCoreTests/FocusSummaryTests.swift
 ```
 
-(`docs/ai/handoff/current-execution-report.md` в списке — это сам этот файл.)
+Мои в этом раунде — только `Tests/TerminatorCoreTests/FocusSummaryTests.swift` и этот отчёт.
+`Sources/TerminatorCore/FocusSummary.swift` числится новым файлом с прошлых раундов, но в раунде 6
+не менялся (хеш совпал). Всё под `docs/`, кроме отчёта, — **правки оркестратора, не мои**:
+`current-context.md`, `current-task-packet.md`, карточка TASK-108, DEC-005, DEC-006,
+`decisions/index.md`. Не трогались и не откатывались.
+
+Запрещённые зоны не тронуты: под `Sources/Terminator/` и `Sources/TerminatorAppKit/` изменений нет;
+`FocusStore.swift`, `FocusFormat.swift`, `FocusLedger.swift`, `FocusRollup.swift` только читались;
+`build.sh`, `Package.swift`, `scripts/`, `Packaging/` не менялись;
+`~/Library/Application Support/com.svvoff.terminator/` не читался и не листался; git — только
+`status`, `diff --stat`, `diff --no-index`; временные файлы — в `$TMPDIR`.
 
 ## Риски
 
-1. **Процесс без `p_starttime` теперь не считается вообще.** Если найдётся живой процесс, у
-   которого `sysctl(KERN_PROC_PID)` молчит, его отсчёт не начнётся никогда, а не начнётся от
-   `launchDate`. findings §3 измерил 90 из 90 у живых, так что состояние считается
-   несуществующим — но это измерение, а не гарантия ядра. Симптом, если оно всё-таки
-   существует: приложение видно в логе как `app-detected`, а `countdown-started` для него не
-   появляется никогда. Это заметно в логе и не тихо.
-2. **Окно всё ещё существует, просто теперь молчит.** Мёртвый процесс, висящий в снимке до
-   19 с, снимается первой же сверкой. Если он в этом окне действительно перезапустится с тем же
-   pid, новая сессия заведётся на следующей сверке, когда `p_starttime` станет доступен, —
-   с полным свежим лимитом, как требует DEC-003.
-3. **Правка проверена только тестами и глазами.** Подтверждение, что фантом на живой машине
-   исчез, даст только испытание 1 ручного чеклиста.
+- **Известное слепое пятно — «молчаливый топ-N»**: `rowSetIsNotTruncated` фиксирует двенадцать
+  строк, и мутант `prefix(N)` с бо́льшим N его переживёт. Решение оркестратора: глубже не идти.
+- Прежние слепые пятна и эквивалентные мутанты — как в раунде 5 (отсутствие публичного `init` у
+  строки, идентификатор Terminator в данных, правило с пустым идентификатором, полдень как якорь,
+  `preconditionFailure` → тихий возврат, `days.count` вместо `dayCount`, ключ словаря вместо
+  `rule.bundleIdentifier`, `seconds / 60 % 60`, `components.seconds < 60`); «знаменатель из первой
+  строки `perDay`» из этого списка выбыл — он убит.
+- Остаточный риск `totalText` на итогах больше `Int64.max` секунд — как прежде, не чинится в этой
+  карточке.
+- Новый сценарий T23 использует ключ `2026-06-31`, которого в календаре нет. Он достижим только
+  ручной правкой `focus.json` и в тесте служит ровно одному: отделить «день окна» от «день между
+  краями окна». Продуктового поведения для несуществующих дат тест не объявляет — только то, что
+  днём окна такой ключ не становится.
 
 ## Незавершённое и follow-up
 
-- Испытание 1 ручного чеклиста на исправленной сборке — за человеком.
-- Секция «4. Launch time» карточки TASK-004 по-прежнему описывает удалённый откат. Амендмент 3
-  это оговаривает явно, но привести секцию в соответствие (или оставить как есть, раз амендмент
-  сильнее) — решение оркестратора; исполнитель карточки не правит.
-- Свою работу не принимаю: продакшн-код ревьюит оркестратор отдельным ходом.
+- Продакшн-код в этом раунде не менялся — приёмка за оркестратором отдельным ходом (правило
+  «не принимать собственную работу»).
+- Follow-up для TASK-101 — прежние: предусловие «сводка строится один раз на открытие из
+  замороженного снимка» лежит в док-комментарии `rows`; строки дней, разрешение имён приложений и
+  пояснение «Terminator не работал» — там же, не здесь.

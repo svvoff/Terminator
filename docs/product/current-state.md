@@ -13,8 +13,14 @@ an adversary — the product creates friction, not a prison.
 
 Stage 1 — MVP. **No card is left, and the stage is still open: two of its five exit criteria
 are unmet.** The limiter and silent focus-data collection both ship and both run on the author's
-own machine. Stage 0 (discovery) is done. Stages 2 (statistics UI), 3 (scheduling), 4
-(distribution) are future and have no cards.
+own machine. Stage 0 (discovery) is done.
+
+**Stage 2 (statistics) has been active in parallel since 2026-09-15, and its first card is
+done.** TASK-108 — the core of the focus summary — was accepted on 2026-09-17: a pure function in
+`TerminatorCore` that computes the seven-day window the future "Focus" section will show. Nothing
+is rendered yet and no behaviour changed; the fold itself (TASK-101) stays in `deferred/` until
+Stage 1's collection week closes, because it needs `./build.sh` and a restart of the resident.
+Stages 3 (scheduling) and 4 (distribution) remain future and have no cards.
 
 Eight of the milestone's nine cards were accepted by 2026-09-14; the ninth, TASK-005, was deferred
 because TASK-009 measured its subject away rather than because it was dropped. **Criterion 1 was

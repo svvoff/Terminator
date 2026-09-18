@@ -10,8 +10,8 @@ decisions are active.
 | DEC-002 | Expiry action | Quit primitive and retry loop — TASK-001, TASK-004, TASK-005, TASK-006 | `active/DEC-002-expiry-action.md` |
 | DEC-003 | No cooldown, swappable expiry strategy | Engine seam for expiry behaviour — TASK-004 | `active/DEC-003-no-cooldown.md` |
 | DEC-004 | No warning before closing | Absence of a notification path — TASK-004, TASK-005, TASK-006, TASK-008 | `active/DEC-004-no-warning.md` |
-| DEC-005 | Focus statistics scope and pause set | Focus collection and the store it reuses — TASK-003, TASK-007 | `active/DEC-005-focus-statistics.md` |
-| DEC-006 | Anti-circumvention is a non-goal | The whole product; login item — EPIC-01, EPIC-02, TASK-002, TASK-004, TASK-008 | `active/DEC-006-anti-circumvention-non-goal.md` |
+| DEC-005 | Focus statistics scope and pause set | Focus collection and the store it reuses — TASK-003, TASK-007, TASK-108 | `active/DEC-005-focus-statistics.md` |
+| DEC-006 | Anti-circumvention is a non-goal | The whole product; login item — EPIC-01, EPIC-02, TASK-002, TASK-004, TASK-008, TASK-108 | `active/DEC-006-anti-circumvention-non-goal.md` |
 | DEC-007 | Build shape and signing identity | Package, build script, signing — EPIC-01, TASK-001, TASK-002, TASK-005 | `active/DEC-007-build-and-signing.md` |
 | DEC-008 | Accepted product risk: the interruption tax | The MVP mechanic as a whole — EPIC-02, EPIC-04, TASK-004, TASK-006, TASK-007 | `active/DEC-008-interruption-tax.md` |
 | DEC-009 | Menu bar icon: code-drawn skull, concept B | Menu bar item and its red-eye state — EPIC-01, TASK-002, TASK-006 | `active/DEC-009-menu-bar-icon.md` |

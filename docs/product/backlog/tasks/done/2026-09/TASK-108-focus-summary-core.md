@@ -10,6 +10,7 @@ context_refs:
   - docs/product/roadmap/stages/02-statistics.md
   - docs/product/decisions/active/DEC-005-focus-statistics.md
   - docs/product/decisions/active/DEC-006-anti-circumvention-non-goal.md
+  - docs/product/decisions/active/DEC-008-interruption-tax.md
   - docs/product/recon/macos-findings.md
 ---
 

@@ -7,6 +7,7 @@ applies_to:
   - TASK-002
   - TASK-004
   - TASK-008
+  - TASK-108
 ---
 
 # DEC-006 — Anti-circumvention is a non-goal
@@ -81,6 +82,10 @@ EPIC-01 (bundle and lifecycle) and EPIC-02 (watching and quitting) in full. Conc
 TASK-002 ships one process and no helper; TASK-004 reconstructs deadlines rather than
 persisting them; TASK-008 registers a legacy LaunchAgent plist and must not use
 `SMAppService.loginItem(identifier:)`.
+
+TASK-108 (Stage 2, the focus summary) computes nothing whose purpose is to detect circumvention —
+no count of disabled rules, no streak, no "over the limit" figure. Added to `applies_to` on
+2026-09-17, when the router was found not to list the card that already cited this decision.
 
 ## Review trigger
 
